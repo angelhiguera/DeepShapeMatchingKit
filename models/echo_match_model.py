@@ -187,12 +187,22 @@ class Echo_Match_Model(PartialBaseModel):
 
         use_feat_x, use_feat_y = (feat_x, feat_y) 
 
+        gt_partiality_mask21 = data_y['partiality_mask'][0]
+
+        assert gt_partiality_mask21.shape[0] == feat_y.shape[1]
+
+        feat_y_oracle = feat_y * gt_partiality_mask21.unsqueeze(0).unsqueeze(-1)
+
         # predict fmap
         Cxy = self.networks['echo_match_net'].fmreg_net(use_feat_x, use_feat_y, evals_x, evals_y, evecs_trans_x, evecs_trans_y)
         Cxy = Cxy.squeeze()
 
+        Cxy_oracle = self.networks['echo_match_net'].fmreg_net(use_feat_x, feat_y_oracle, evals_x, evals_y, evecs_trans_x, evecs_trans_y)
+        Cxy_oracle = Cxy_oracle.squeeze()
+
         # convert functional map to point-to-point map
         p2p_fmap = fmap2pointmap(Cxy, evecs_x, evecs_y)
+        p2p_fmap_oracle = fmap2pointmap(Cxy_oracle, evecs_x, evecs_y)
 
         # direct point-to-point map
         p2p_point = nn_query(feat_x_normed, feat_y_normed)
@@ -206,6 +216,7 @@ class Echo_Match_Model(PartialBaseModel):
             'overlap_score21': overlap_score21,
             'p2p_variants': {
                 'fmap': p2p_fmap,
-                'point': p2p_point
+                'point': p2p_point,
+                'fmap_oracle': p2p_fmap_oracle,
             }
         }
