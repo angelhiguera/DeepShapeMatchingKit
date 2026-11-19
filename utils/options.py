@@ -104,6 +104,12 @@ def parse(opt_path, root_path, is_train=True, override_path=None):
         opt['path']['models'] = osp.join(experiments_root, 'models')
         opt['path']['log'] = osp.join(experiments_root, 'log')
 
+        # Require an explicit checkpoint for evaluations that compare frozen weights.
+        if opt['path'].get('require_checkpoint'):
+            checkpoint = opt['path'].get('resume_state')
+            if not checkpoint or not osp.isfile(checkpoint):
+                raise FileNotFoundError(f"Evaluation requires an existing path.resume_state checkpoint: {checkpoint}")
+
         # check whether the resume_state ckpt file exists
         if opt['path'].get('resume_state') and osp.exists(opt['path']['resume_state']):
             print(f'Found resume_state in {opt["path"]["resume_state"]}')
