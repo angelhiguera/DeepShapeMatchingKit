@@ -53,7 +53,8 @@ networks:
 
 # training setting
 train:
-  total_epochs: 408 # 110,976 updates on the 272-map split
+  total_epochs: 900 # 244,800 updates on the 272-map split
+  early_stopping_patience: 245 # Exceeds the 244 periodic validations in this run
   optims:
     echo_match_net:
       type: Adam
