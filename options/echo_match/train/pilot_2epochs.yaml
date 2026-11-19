@@ -1,0 +1,8 @@
+train:
+  total_epochs: 2
+
+val:
+  val_freq: 272
+
+logger:
+  save_checkpoint_freq: 272
