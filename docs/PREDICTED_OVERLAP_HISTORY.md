@@ -12,6 +12,7 @@ pesos congelados y el checkpoint seleccionado por el error `point` de validació
 | `da27ece` | Añade `fmap_predicted_binary` con umbral fijo `> 0,5` para el split de validación. | Comprueba si el uso de pesos continuos explica el resultado observado. El lanzador verifica los 32 mapas contra el manifiesto de validación. |
 | `Export paired overlap evaluation errors` | Exporta los errores por dirección y por par sin orden, con diferencias respecto a `fmap`. | Permite comprobar si el cambio de signo entre validación y test se concentra en pocos pares o aparece de forma generalizada. |
 | `Export vertex diagnostics for the horse–hippo pair` | Exporta probabilidades, GT y errores por vértice en ambas direcciones del par elegido. | El oracle mejora el par en test mientras la máscara suave lo empeora. El diagnóstico permite localizar los vértices que más contribuyen al cambio. |
+| `Isolate the effect of missed overlap vertices` | Añade `fmap_gt_restore_fn` solo para las dos direcciones del par elegido. En la ponderación suave, restaura a 1 los vértices GT con probabilidad ≤ 0,5. | Mide el efecto de corregir exclusivamente los falsos negativos con los pesos congelados. El promedio de esta variante cubre el par de diagnóstico y no todo el test. |
 
 ## Cómo leer los CSV
 

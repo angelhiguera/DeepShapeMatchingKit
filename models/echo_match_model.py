@@ -223,6 +223,16 @@ class Echo_Match_Model(PartialBaseModel):
                 feat_x, feat_y_oracle, evals_x, evals_y, evecs_trans_x, evecs_trans_y)
             p2p_variants['fmap_oracle'] = fmap2pointmap(Cxy_oracle.squeeze(), evecs_x, evecs_y)
 
+            diagnostic_pair = self.opt['val'].get('diagnostic_vertex_pair', [])
+            if (self.opt['val'].get('diagnostic_restore_false_negatives', False)
+                    and 'fmap_predicted' in p2p_variants
+                    and sorted((data_x['name'][0], data_y['name'][0])) == sorted(diagnostic_pair)):
+                false_negatives = mask_y.unsqueeze(-1).bool() & (weights_y <= 0.5)
+                restored_weights = torch.where(false_negatives, 1.0, weights_y)
+                Cxy_restored = self.networks['echo_match_net'].fmreg_net(
+                    feat_x, feat_y * restored_weights, evals_x, evals_y, evecs_trans_x, evecs_trans_y)
+                p2p_variants['fmap_gt_restore_fn'] = fmap2pointmap(Cxy_restored.squeeze(), evecs_x, evecs_y)
+
         # finish record
         timer.record()
 

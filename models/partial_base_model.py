@@ -125,6 +125,14 @@ class PartialBaseModel(BaseModel):
                             name_y, name_x, variant_name, errors.size,
                             float(errors.mean()), float((errors - baseline).mean())))
                 if diagnose_vertices:
+                    if 'fmap_gt_restore_fn' in direction_errors:
+                        soft = direction_errors['fmap_predicted']
+                        restored = direction_errors['fmap_gt_restore_fn']
+                        logger.info(
+                            f'GT restore diagnostic {name_y} -> {name_x}: '
+                            f'fmap={baseline.mean():.4f}, soft={soft.mean():.4f}, '
+                            f'restored={restored.mean():.4f}, '
+                            f'delta vs soft={(restored - soft).mean():+.4f}')
                     scores = np.atleast_1d(overlap_score21)
                     gt_mask = np.atleast_1d(gt_overlap21).astype(bool)
                     corr_y = np.atleast_1d(corr_y)
