@@ -1,4 +1,6 @@
 from .base_model import BaseModel
+from collections import defaultdict
+import csv
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -12,6 +14,31 @@ import pickle
 from metrics.overlap_metric import calculate_overlap_iou, plot_pck_p2p, calculate_overlap_auc, write_geo_error_to_file
 from sklearn.metrics import balanced_accuracy_score
 import wandb
+
+
+def save_variant_pair_errors(results_root, directional_rows):
+    """Export aligned directional and unordered-pair comparisons against fmap."""
+    direction_fields = (
+        'source_y', 'target_x', 'variant', 'correspondences', 'mean_error', 'delta_vs_fmap')
+    with open(os.path.join(results_root, 'variant_errors_by_direction.csv'), 'w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(direction_fields)
+        writer.writerows(directional_rows)
+
+    grouped = defaultdict(list)
+    for source, target, variant, count, error, delta in directional_rows:
+        shape_a, shape_b = sorted((source, target))
+        grouped[shape_a, shape_b, variant].append((count, error, delta))
+
+    with open(os.path.join(results_root, 'variant_errors_by_pair.csv'), 'w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(('shape_a', 'shape_b', 'variant', 'directions', 'correspondences',
+                         'mean_error', 'delta_vs_fmap'))
+        for (shape_a, shape_b, variant), rows in sorted(grouped.items()):
+            count = sum(n for n, _, _ in rows)
+            error = sum(n * mean for n, mean, _ in rows) / count
+            delta = sum(n * difference for n, _, difference in rows) / count
+            writer.writerow((shape_a, shape_b, variant, len(rows), count, error, delta))
 
 
 class PartialBaseModel(BaseModel):
@@ -31,6 +58,8 @@ class PartialBaseModel(BaseModel):
 
         metrics_result = {}
         variant_metrics_result = {}
+        save_pair_errors = not self.opt['is_train'] and self.opt['val'].get('save_variant_pair_errors', False)
+        directional_rows = []
 
         timer = AvgTimer()
         pbar = tqdm(dataloader)
@@ -80,10 +109,19 @@ class PartialBaseModel(BaseModel):
                 plt.savefig(os.path.join(self.opt['path']['results_root'],'pcks',  f'{name_x}-{name_y}.jpg'))
             # p2p variants
             if 'p2p_variants' in results.keys():
+                direction_errors = {}
                 for variant_name, variant_p2p in results['p2p_variants'].items():
                     variant_p2p = to_numpy(variant_p2p)
                     variant_geo_err = self.metrics['geo_error'](dist_x, corr_x, corr_y, variant_p2p, return_mean=False)
                     variant_metrics_result.setdefault(variant_name, []).append(variant_geo_err)
+                    if save_pair_errors:
+                        direction_errors[variant_name] = variant_geo_err
+                if save_pair_errors:
+                    baseline = direction_errors['fmap']
+                    for variant_name, errors in direction_errors.items():
+                        directional_rows.append((
+                            name_y, name_x, variant_name, errors.size,
+                            float(errors.mean()), float((errors - baseline).mean())))
         # entire dataset metrics
         all_geo_errors = np.concatenate(metrics_result['geo_errors'])
         avg_geo_error = all_geo_errors.mean()
@@ -148,6 +186,11 @@ class PartialBaseModel(BaseModel):
             for metric_name, data in metrics_result.items():
                 with open(os.path.join(results_root, f'{metric_name}.pkl'), 'wb') as f:
                     pickle.dump(data, f)
+
+        if save_pair_errors:
+            results_root = self.opt['path']['results_root']
+            save_variant_pair_errors(results_root, directional_rows)
+            logger.info(f'Variant errors by direction and pair saved in {results_root}')
 
         # update best model state dict
         if update and (self.best_metric is None or (avg_geo_error < self.best_metric)):

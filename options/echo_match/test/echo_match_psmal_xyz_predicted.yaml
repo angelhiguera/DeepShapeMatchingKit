@@ -44,6 +44,7 @@ val:
   predicted_overlap: true
   oracle_overlap: true  # GT mask diagnostic on Y descriptors
   save_geo_errors: true
+  save_variant_pair_errors: true
   metrics:
     geo_error:
       type: calculate_geodesic_error
