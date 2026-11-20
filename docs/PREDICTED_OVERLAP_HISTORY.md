@@ -11,6 +11,7 @@ pesos congelados y el checkpoint seleccionado por el error `point` de validació
 | `8bf228f` | Reduce el límite de SLURM de dos horas a diez minutos. | La primera evaluación oficial tardó 1 min 35 s. Un límite más corto facilita que Slurm encuentre un hueco, con margen para la ejecución. |
 | `da27ece` | Añade `fmap_predicted_binary` con umbral fijo `> 0,5` para el split de validación. | Comprueba si el uso de pesos continuos explica el resultado observado. El lanzador verifica los 32 mapas contra el manifiesto de validación. |
 | `Export paired overlap evaluation errors` | Exporta los errores por dirección y por par sin orden, con diferencias respecto a `fmap`. | Permite comprobar si el cambio de signo entre validación y test se concentra en pocos pares o aparece de forma generalizada. |
+| `Export vertex diagnostics for the horse–hippo pair` | Exporta probabilidades, GT y errores por vértice en ambas direcciones del par elegido. | El oracle mejora el par en test mientras la máscara suave lo empeora. El diagnóstico permite localizar los vértices que más contribuyen al cambio. |
 
 ## Cómo leer los CSV
 

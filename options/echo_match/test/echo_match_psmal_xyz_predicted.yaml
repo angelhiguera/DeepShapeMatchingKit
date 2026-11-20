@@ -45,6 +45,7 @@ val:
   oracle_overlap: true  # GT mask diagnostic on Y descriptors
   save_geo_errors: true
   save_variant_pair_errors: true
+  diagnostic_vertex_pair: [cuts_1_horse_05, cuts_23_hippo_06]
   metrics:
     geo_error:
       type: calculate_geodesic_error

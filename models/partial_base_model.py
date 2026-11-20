@@ -60,6 +60,7 @@ class PartialBaseModel(BaseModel):
         variant_metrics_result = {}
         save_pair_errors = not self.opt['is_train'] and self.opt['val'].get('save_variant_pair_errors', False)
         directional_rows = []
+        diagnostic_pair = self.opt['val'].get('diagnostic_vertex_pair', [])
 
         timer = AvgTimer()
         pbar = tqdm(dataloader)
@@ -109,6 +110,7 @@ class PartialBaseModel(BaseModel):
                 plt.savefig(os.path.join(self.opt['path']['results_root'],'pcks',  f'{name_x}-{name_y}.jpg'))
             # p2p variants
             if 'p2p_variants' in results.keys():
+                diagnose_vertices = save_pair_errors and sorted((name_x, name_y)) == sorted(diagnostic_pair)
                 direction_errors = {}
                 for variant_name, variant_p2p in results['p2p_variants'].items():
                     variant_p2p = to_numpy(variant_p2p)
@@ -122,6 +124,31 @@ class PartialBaseModel(BaseModel):
                         directional_rows.append((
                             name_y, name_x, variant_name, errors.size,
                             float(errors.mean()), float((errors - baseline).mean())))
+                if diagnose_vertices:
+                    scores = np.atleast_1d(overlap_score21)
+                    gt_mask = np.atleast_1d(gt_overlap21).astype(bool)
+                    corr_y = np.atleast_1d(corr_y)
+                    filename = f'vertex_errors_{name_y}_to_{name_x}.csv'
+                    with open(os.path.join(self.opt['path']['results_root'], filename), 'w', newline='') as file:
+                        writer = csv.writer(file)
+                        writer.writerow(('vertex_y', 'overlap_probability', 'gt_overlap', *direction_errors))
+                        errors_by_vertex = dict(zip(corr_y, zip(*direction_errors.values())))
+                        blanks = ('',) * len(direction_errors)
+                        for vertex, (score, in_overlap) in enumerate(zip(scores, gt_mask)):
+                            writer.writerow((vertex, float(score), int(in_overlap),
+                                             *errors_by_vertex.get(vertex, blanks)))
+                    retained = scores > 0.5
+                    logger.info(
+                        f'Vertex diagnostic {name_y} -> {name_x}: '
+                        f'false negatives={np.count_nonzero(gt_mask & ~retained)}, '
+                        f'false positives={np.count_nonzero(~gt_mask & retained)}, csv={filename}')
+                    for label, group in (('retained GT', retained[corr_y]),
+                                         ('suppressed GT', ~retained[corr_y])):
+                        if group.any():
+                            deltas = [
+                                f'{variant}={float((errors - baseline)[group].mean()):+.4f}'
+                                for variant, errors in direction_errors.items() if variant != 'fmap']
+                            logger.info(f'  {label}: {group.sum()} vertices, mean delta vs fmap: {", ".join(deltas)}')
         # entire dataset metrics
         all_geo_errors = np.concatenate(metrics_result['geo_errors'])
         avg_geo_error = all_geo_errors.mean()
