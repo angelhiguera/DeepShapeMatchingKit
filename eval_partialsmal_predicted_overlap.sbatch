@@ -10,6 +10,8 @@ set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:?Submit from the repository root with sbatch}"
 
 checkpoint=${1:?Supply the baseline best.pth path}
+validation_split=${2:-}
+data_root=${validation_split:-../data/PARTIALSMAL/test}
 config=options/echo_match/test/echo_match_psmal_xyz_predicted.yaml
 for file in "$checkpoint" "$config"; do
     if [[ ! -f "$file" ]]; then
@@ -17,8 +19,8 @@ for file in "$checkpoint" "$config"; do
         exit 1
     fi
 done
-if [[ ! -d ../data/PARTIALSMAL/test/maps || ! -d ../data/PARTIALSMAL/test/shapes ]]; then
-    echo "Official PARTIALSMAL test data is missing under ../data/PARTIALSMAL/test" >&2
+if [[ ! -d "$data_root/maps" || ! -d "$data_root/shapes" ]]; then
+    echo "PARTIALSMAL maps or shapes missing under $data_root" >&2
     exit 1
 fi
 
@@ -30,20 +32,39 @@ export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 temporary_dir=$(mktemp -d)
 trap 'rm -rf -- "$temporary_dir"' EXIT
 override="$temporary_dir/control.yaml"
+if [[ -n "$validation_split" ]]; then
+    override="$temporary_dir/validation_control.yaml"
+fi
 
 checkpoint=$(realpath -- "$checkpoint")
 echo "Git commit: $(git rev-parse HEAD)"
 sha256sum -- "$checkpoint"
-python - "$checkpoint" "$override" <<'PY'
+python - "$checkpoint" "$override" "$validation_split" <<'PY'
+import json
 import sys
 from pathlib import Path
 
 import yaml
 
-Path(sys.argv[2]).write_text(
-    yaml.safe_dump({"path": {"resume_state": sys.argv[1]}}),
-    encoding="utf-8",
-)
+options = {"path": {"resume_state": sys.argv[1]}}
+if sys.argv[3]:
+    root = Path(sys.argv[3]).resolve()
+    manifest_path = root.parent / "manifest.json"
+    if root.name != "val" or not manifest_path.is_file():
+        sys.exit("Supply the val directory of the original seed-1234 split")
+    manifest = json.loads(manifest_path.read_text())
+    maps = sorted((root / "maps").glob("*.vts"))
+    if (manifest["seed"] != 1234 or len(maps) != 32
+            or [path.name for path in maps] != manifest["splits"]["val"]
+            or not all(path.is_file() for path in maps)):
+        sys.exit(f"Validation maps do not match the seed-1234 manifest: {root}")
+    options["datasets"] = {
+        "test_dataset": {"name": "PartialSMALVal", "data_root": str(root)}
+    }
+    options["val"] = {"predicted_overlap_binary": True}
+    print(f"Validation split: {root} ({len(maps)} directional maps)", flush=True)
+
+Path(sys.argv[2]).write_text(yaml.safe_dump(options), encoding="utf-8")
 PY
 
 python -u test.py --opt "$config" --override "$override"

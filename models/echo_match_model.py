@@ -207,6 +207,12 @@ class Echo_Match_Model(PartialBaseModel):
                 feat_x, feat_y_predicted, evals_x, evals_y, evecs_trans_x, evecs_trans_y)
             p2p_variants['fmap_predicted'] = fmap2pointmap(Cxy_predicted.squeeze(), evecs_x, evecs_y)
 
+            if self.opt['val'].get('predicted_overlap_binary', False):
+                mask_y_binary = (weights_y > 0.5).to(dtype=feat_y.dtype)
+                Cxy_binary = self.networks['echo_match_net'].fmreg_net(
+                    feat_x, feat_y * mask_y_binary, evals_x, evals_y, evecs_trans_x, evecs_trans_y)
+                p2p_variants['fmap_predicted_binary'] = fmap2pointmap(Cxy_binary.squeeze(), evecs_x, evecs_y)
+
         if not self.opt['is_train'] and self.opt.get('val', {}).get('oracle_overlap', False):
             # The oracle masks Y's descriptors before spectral projection.
             mask_y = data_y.get('partiality_mask')
