@@ -12,10 +12,11 @@ cd "${SLURM_SUBMIT_DIR:?Submit from the repository root with sbatch}"
 checkpoint=${1:?Supply the baseline best.pth path}
 validation_split=${2:-}
 binary_test=false
-if [[ "$validation_split" == --binary-test ]]; then
-    binary_test=true
-    validation_split=
-fi
+visualize_pair=false
+case "$validation_split" in
+    --binary-test) binary_test=true; validation_split= ;;
+    --visualize-pair) visualize_pair=true; validation_split= ;;
+esac
 data_root=${validation_split:-../data/PARTIALSMAL/test}
 config=options/echo_match/test/echo_match_psmal_xyz_predicted.yaml
 for file in "$checkpoint" "$config"; do
@@ -41,6 +42,8 @@ if [[ -n "$validation_split" ]]; then
     override="$temporary_dir/validation_control.yaml"
 elif [[ "$binary_test" == true ]]; then
     override="$temporary_dir/binary_test_control.yaml"
+elif [[ "$visualize_pair" == true ]]; then
+    override="$temporary_dir/visualize_pair_control.yaml"
 fi
 
 checkpoint=$(realpath -- "$checkpoint")
@@ -85,3 +88,29 @@ Path(sys.argv[2]).write_text(yaml.safe_dump(options), encoding="utf-8")
 PY
 
 python -u test.py --opt "$config" --override "$override"
+
+if [[ "$visualize_pair" == true ]]; then
+    python - "$config" "$override" <<'PY'
+import subprocess
+import sys
+from pathlib import Path
+
+from utils.options import parse
+
+options = parse(sys.argv[1], str(Path.cwd()), is_train=False, override_path=sys.argv[2])
+shapes = Path(options["datasets"]["test_dataset"]["data_root"]) / "shapes"
+results = Path(options["path"]["results_root"])
+a, b = options["val"]["diagnostic_vertex_pair"]
+for source, target in ((a, b), (b, a)):
+    direction = f"{source}_to_{target}"
+    output = results / f"overlap_{direction}.html"
+    subprocess.run([
+        sys.executable, "scripts/visualize_overlap_pair.py",
+        "--csv", str(results / f"vertex_errors_{direction}.csv"),
+        "--source", str(shapes / f"{source}.off"),
+        "--target", str(shapes / f"{target}.off"),
+        "--output", str(output),
+    ], check=True)
+    print(f"Pair viewer: {output}", flush=True)
+PY
+fi

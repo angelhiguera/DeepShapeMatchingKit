@@ -14,6 +14,7 @@ pesos congelados y el checkpoint seleccionado por el error `point` de validació
 | `Export vertex diagnostics for the horse–hippo pair` | Exporta probabilidades, GT y errores por vértice en ambas direcciones del par elegido. | El oracle mejora el par en test mientras la máscara suave lo empeora. El diagnóstico permite localizar los vértices que más contribuyen al cambio. |
 | `Isolate the effect of missed overlap vertices` | Añade `fmap_gt_restore_fn` solo para las dos direcciones del par elegido. En la ponderación suave, restaura a 1 los vértices GT con probabilidad ≤ 0,5. | Mide el efecto de corregir exclusivamente los falsos negativos con los pesos congelados. El promedio de esta variante cubre el par de diagnóstico y no todo el test. |
 | `Evaluate the fixed binary overlap mask on official test` | Añade `--binary-test` al lanzador para evaluar la máscara binaria con el umbral de validación `> 0,5`. Usa una carpeta de resultados nueva y desactiva el rescate GT limitado a un par. | Completa la comparación con las cinco variantes sobre los mismos 100 mapas del test oficial y el mismo checkpoint congelado. |
+| `Visualize local correspondences for the horse–hippo pair` | Guarda los índices de destino de cada variante y añade el modo `--visualize-pair` para generar un visor HTML por dirección. | Permite comparar el destino de un vértice y los de sus vecinos de malla para estudiar dónde se pierde la coherencia local. |
 
 ## Cómo leer los CSV
 

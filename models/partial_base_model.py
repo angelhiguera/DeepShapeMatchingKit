@@ -112,12 +112,15 @@ class PartialBaseModel(BaseModel):
             if 'p2p_variants' in results.keys():
                 diagnose_vertices = save_pair_errors and sorted((name_x, name_y)) == sorted(diagnostic_pair)
                 direction_errors = {}
+                direction_maps = {}
                 for variant_name, variant_p2p in results['p2p_variants'].items():
                     variant_p2p = to_numpy(variant_p2p)
                     variant_geo_err = self.metrics['geo_error'](dist_x, corr_x, corr_y, variant_p2p, return_mean=False)
                     variant_metrics_result.setdefault(variant_name, []).append(variant_geo_err)
                     if save_pair_errors:
                         direction_errors[variant_name] = variant_geo_err
+                    if diagnose_vertices:
+                        direction_maps[variant_name] = np.atleast_1d(variant_p2p)
                 if save_pair_errors:
                     baseline = direction_errors['fmap']
                     for variant_name, errors in direction_errors.items():
@@ -136,15 +139,19 @@ class PartialBaseModel(BaseModel):
                     scores = np.atleast_1d(overlap_score21)
                     gt_mask = np.atleast_1d(gt_overlap21).astype(bool)
                     corr_y = np.atleast_1d(corr_y)
+                    gt_targets = dict(zip(corr_y, np.atleast_1d(corr_x)))
                     filename = f'vertex_errors_{name_y}_to_{name_x}.csv'
                     with open(os.path.join(self.opt['path']['results_root'], filename), 'w', newline='') as file:
                         writer = csv.writer(file)
-                        writer.writerow(('vertex_y', 'overlap_probability', 'gt_overlap', *direction_errors))
+                        writer.writerow(('vertex_y', 'overlap_probability', 'gt_overlap', *direction_errors,
+                                         'target_gt', *(f'target_{variant}' for variant in direction_maps)))
                         errors_by_vertex = dict(zip(corr_y, zip(*direction_errors.values())))
                         blanks = ('',) * len(direction_errors)
                         for vertex, (score, in_overlap) in enumerate(zip(scores, gt_mask)):
                             writer.writerow((vertex, float(score), int(in_overlap),
-                                             *errors_by_vertex.get(vertex, blanks)))
+                                             *errors_by_vertex.get(vertex, blanks),
+                                             gt_targets.get(vertex, ''),
+                                             *(mapping[vertex] for mapping in direction_maps.values())))
                     retained = scores > 0.5
                     logger.info(
                         f'Vertex diagnostic {name_y} -> {name_x}: '
