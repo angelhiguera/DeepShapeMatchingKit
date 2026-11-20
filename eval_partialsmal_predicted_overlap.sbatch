@@ -2,7 +2,7 @@
 #SBATCH --job-name=echo-predicted-overlap
 #SBATCH --partition=mlgpu_short
 #SBATCH --gres=gpu:a40:1
-#SBATCH --time=02:00:00
+#SBATCH --time=00:10:00
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 
