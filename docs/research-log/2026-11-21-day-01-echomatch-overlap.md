@@ -93,31 +93,23 @@ The CSVs establish which direction drives each effect. They contain no predicted
 
 ## Reproduce the audit
 
-From the repository root on this documentation branch, fetch the experiment snapshot and extract the two pinned files. The audit uses the Python standard library. The plot also needs Matplotlib.
+The two CSVs in `research-results/day01/` are byte-for-byte copies from [the pinned experiment snapshot](https://github.com/angelhiguera/DeepShapeMatchingKit/tree/4816bdd944632dd6dea4836e3d0268d6e21606c3/research-results/day01). Run these commands from the repository root. The audit uses the Python standard library. The plot also needs Matplotlib.
 
 ```bash
-snapshot=4816bdd944632dd6dea4836e3d0268d6e21606c3
-git fetch origin experiment/predicted-overlap-fmap
-mkdir -p /tmp/echomatch-day01
-for kind in pair direction; do
-  file="variant_errors_by_${kind}.csv"
-  git show "$snapshot:research-results/day01/$file" > "/tmp/echomatch-day01/$file"
-done
-
 python docs/research-log/scripts/audit_overlap_csv.py \
-  /tmp/echomatch-day01/variant_errors_by_pair.csv \
-  /tmp/echomatch-day01/variant_errors_by_direction.csv
+  research-results/day01/variant_errors_by_pair.csv \
+  research-results/day01/variant_errors_by_direction.csv
 
 python docs/research-log/scripts/plot_overlap_deltas.py \
-  /tmp/echomatch-day01/variant_errors_by_pair.csv \
-  /tmp/echomatch-day01/variant_errors_by_direction.csv \
+  research-results/day01/variant_errors_by_pair.csv \
+  research-results/day01/variant_errors_by_direction.csv \
   docs/research-log/assets/day01/dino-overlap-deltas.png
 ```
 
 | Raw CSV | SHA-256 |
 | --- | --- |
-| [Pair rows](https://github.com/angelhiguera/DeepShapeMatchingKit/blob/4816bdd944632dd6dea4836e3d0268d6e21606c3/research-results/day01/variant_errors_by_pair.csv) | `aa49ebc4e9b9145a531a1c90f4f62254a1d93aff4e35afcd38c877576859986d` |
-| [Direction rows](https://github.com/angelhiguera/DeepShapeMatchingKit/blob/4816bdd944632dd6dea4836e3d0268d6e21606c3/research-results/day01/variant_errors_by_direction.csv) | `7de760d3779b08fadd123429f718990c6b3433b79f452f2271251b5e1991ceb4` |
+| [Pair rows](../../research-results/day01/variant_errors_by_pair.csv) | `aa49ebc4e9b9145a531a1c90f4f62254a1d93aff4e35afcd38c877576859986d` |
+| [Direction rows](../../research-results/day01/variant_errors_by_direction.csv) | `7de760d3779b08fadd123429f718990c6b3433b79f452f2271251b5e1991ceb4` |
 
 ### Reconstructed evaluation command
 
