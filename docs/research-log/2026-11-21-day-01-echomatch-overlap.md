@@ -2,7 +2,11 @@
 
 **21 November 2026 · Published DINO checkpoint · Official PARTIALSMAL test**
 
-With weights frozen, soft predicted overlap reduced the correspondence-weighted functional map error from **0.077141 to 0.075736** (1.82%). The effect varied substantially by pair and direction. Only 27 of 50 unordered pairs improved, and the paired bootstrap interval spans zero. Direct descriptor nearest neighbors had the lowest pooled error, **0.049341**. These results evaluate an inference-time intervention. Whether training through the predicted mask improves descriptors or correspondences is still open.
+## Why start with inference?
+
+EchoMatch already predicts which vertices belong to the shared region of two partial shapes. In the baseline, overlap BCE supervises those predictions. During training, the functional-map (FM) solver instead receives the GT mask on Y. At test time the baseline FM solver receives unmasked descriptors. This leaves an open question about the model's existing overlap predictions. Can they help the solver focus on descriptors from the shared region?
+
+Day 01 is a first test of that idea before using predicted overlap in training. We freeze the published DINO checkpoint, score the same test correspondences, and change only the weights on Y's descriptors before fitting the FM. The unmasked FM is the reference, the GT mask is a diagnostic for supplying known overlap support, and direct descriptor nearest neighbors give a separate reference for the existing representation. This setup isolates what the solver does with today's predictions. Training through those weights would ask whether correspondence supervision can improve the predictor, the descriptors, or both. [Baseline training path](https://github.com/xieyizheng/DeepShapeMatchingKit/blob/15d14bbc957bd06e355e78c9b2b4bd955d0c2eeb/models/echo_match_model.py#L72) · [Inference variants](https://github.com/angelhiguera/DeepShapeMatchingKit/blob/4816bdd944632dd6dea4836e3d0268d6e21606c3/models/echo_match_model.py#L188)
 
 ## Code and dataset
 
@@ -40,10 +44,23 @@ The following setup and job details are from the researcher’s Marvin handoff. 
 | `29232887` | GPU KNN smoke test on an NVIDIA A40. The environment used Python 3.10, PyTorch 2.3.0+cu121 and a locally built PyTorch3D 0.7.8 wheel. |
 | `29233071` | DINO extraction for `cuts_0_cougar_01` produced a 2555 × 768 feature array. Moving `TORCH_HOME` to Lustre scratch resolved a stale file handle in the default Torch Hub cache. |
 | `29233097` | Official test preprocessing walked 100 dataset entries in about 14 min 45 s. Reported cache sizes were 1.7 GB DINO, 291 MB diffusion and 4.5 GB geodesic distances. Entries may reuse cached meshes. |
-| `29240627` | Published DINO baseline, reported completed in 1 min 20 s with about 4.9 GB peak RSS. Reported direct-point PCK AUC 0.8300, overlap-aware point AUC 0.8128, mean overlap IoU 0.8475 and balanced accuracy 0.9275. The variant CSVs cannot verify those four auxiliary metrics. |
+| `29240627` | Published DINO baseline, reported completed in 1 min 20 s with about 4.9 GB peak RSS. Reported direct-point PCK AUC 0.8300 and overlap-aware point AUC 0.8128. Mask metrics are recorded below. |
 | `29240854` | DINO variant evaluation associated with the audited CSVs. The handoff reports soft predicted and GT masks enabled, per-pair export enabled and the GT repair disabled. The CSVs confirm the four exported variants. The original effective config, full job SHA and job-side checkpoint digest remain to be archived. |
 
 The branch tracks [the preprocessing launcher](https://github.com/angelhiguera/DeepShapeMatchingKit/blob/4816bdd944632dd6dea4836e3d0268d6e21606c3/preprocess_psmal_dino_test.sbatch) and [the DINO evaluation launcher](https://github.com/angelhiguera/DeepShapeMatchingKit/blob/4816bdd944632dd6dea4836e3d0268d6e21606c3/eval_echomatch_psmal_dino.sbatch). The latter references `echo_match_psmal_dino_oracle.yaml`, which is absent from the pinned tree. The launcher commit `b0384be` and CSV commit `4816bdd` establish the published provenance of those artifacts. They do not establish the job checkout. The handoff identifies the original outputs under `results/echo_match/echo_match_psmal_dino_oracle50_/` and log `eval_echomatch_psmal_dino-29240854.out`.
+
+## Overlap prediction baseline
+
+The Marvin handoff reports the same mask metrics for the published DINO baseline and the variant evaluation, jobs `29240627` and `29240854`. These values are the reference for future changes to the overlap head on the official test split.
+
+| Mask metric on official test | X, destination of Y → X | Y, source of Y → X |
+| --- | ---: | ---: |
+| Mean intersection over union (`miou1`, `miou2`) | **0.8475** | **0.8475** |
+| Mean balanced accuracy (`b_acc1`, `b_acc2`) | **0.9275** | **0.9275** |
+
+For each shape in a directed entry, the evaluator thresholds its predicted probability at **`p > 0.5`** and divides the number of vertices in both the predicted and GT masks by the number in either mask. It then averages the resulting IoU values separately for X and Y over the 100 entries. Balanced accuracy averages class recall within each mask, and the evaluator averages it by the same roles. In contrast, the predicted FM intervention uses Y's **continuous probabilities** before spectral projection. [IoU implementation](https://github.com/xieyizheng/DeepShapeMatchingKit/blob/15d14bbc957bd06e355e78c9b2b4bd955d0c2eeb/metrics/overlap_metric.py#L7) · [Mask metrics and aggregation](https://github.com/angelhiguera/DeepShapeMatchingKit/blob/4816bdd944632dd6dea4836e3d0268d6e21606c3/models/partial_base_model.py#L82)
+
+The mask figures are reported from the handoff. The committed CSVs contain correspondence errors and counts, so they cannot independently verify IoU, the raw intersection and union counts, or accuracy. If the original Marvin outputs remain available, the saved `iou1.pkl` and `iou2.pkl` can verify the means without inference. Raw intersection and union counts additionally need the saved probabilities and aligned GT masks.
 
 ## Audited results
 
@@ -61,6 +78,12 @@ Negative deltas indicate improvement. No pair ties appeared for the three compar
 A sensitivity check illustrates how much the aggregate depends on a single pair. Omitting the largest-gain pair, `cuts_3_hippo_04 / cuts_6_horse_10`, changes the pooled predicted-mask delta from −0.001405 to **+0.000053** and the GT-mask delta from −0.000448 to **+0.000261**. The primary result retains all 50 pairs.
 
 A paired percentile bootstrap sampled 50 unordered pairs with replacement, keeping both directions and all methods together, for 10,000 replicates with seed 1234. The 95% interval for the pooled predicted-mask delta was **[−0.005607, +0.002253]**, and for the GT-mask delta **[−0.002655, +0.001442]**. Both span zero. Shared meshes across pairs mean these intervals are descriptive and conditional on this test construction. They do not establish statistical significance or uncertainty over retraining.
+
+### What this tells us before training
+
+Soft weighting reduced the pooled FM error by **1.82%**, from **0.077141 to 0.075736**, but improved just **27 of 50 pairs** and **39 of 100 directions**. The largest-gain pair drives the sign of the pooled change. Direct descriptor matching remains much stronger on this checkpoint at **0.049341**. GT masking produces a smaller pooled gain and can hurt individual pairs too. This tells us that conditioning the FM solver on overlap changes its behavior, but the benefit of this particular weighting is uneven even when the overlap labels are known.
+
+The reported **0.8475 mIoU** gives a baseline for overall mask agreement. It leaves open whether the predictor makes errors at the vertices or regions the solver relies on most. When we test training with predicted weights, evaluate mask IoU alongside the same three correspondence paths: direct `point`, unmasked `fmap`, and `fmap_predicted`. A gain in `point` would support an improvement in descriptor matching. A gain confined to `fmap_predicted` would point to a benefit from how the learned weights are used in the solver.
 
 ![Pair-level deltas ranked by predicted-mask effect and opposing direction deltas for each unordered pair](assets/day01/dino-overlap-deltas.png)
 
