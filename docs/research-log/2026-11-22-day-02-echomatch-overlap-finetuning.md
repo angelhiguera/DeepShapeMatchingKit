@@ -87,24 +87,21 @@ and aggregate test logs.
 **Question.** Does the descriptor-matching gain persist or grow across a
 longer adjustment?
 
-Fix the endpoint at **50 cumulative epochs** (15,200 batches). Continue the
-completed 10-epoch pilot with the same losses, learning rate and data.
-The additional 40 epochs use 12,160 batches. Compare the published weights
-and the epoch-10, epoch-20 and epoch-50 checkpoints on the same test maps
-after training. Use `point` as the primary result and track both FM variants
-and mask mIoU as secondary readouts. Report all four measurements, including
-any deterioration. This extension is exploratory because it is motivated
-by the 10-epoch test result.
+Fix the endpoint at **50 epochs** (15,200 batches) in one new run. Use
+the same published initialization, losses, learning rate and data as the
+pilot. Compare the published weights and the epoch-10, epoch-20 and
+epoch-50 checkpoints from this run on the same test maps after training.
+Use `point` as the primary result and track both FM variants and mask mIoU
+as secondary readouts. Report all four measurements, including any
+deterioration. This follow-up is exploratory because it is motivated by the
+10-epoch pilot's test result.
 
-The `continue50` launcher restores weights, Adam, scheduler and counters
-from the **full-state epoch-10 `3040.pth`**. It applies the pending
-epoch-end scheduler step once and starts epoch 11 in a separate output
-directory. The learning rate remains `1e-4` through epoch 50 under
-`StepLR(step_size=100)`. The checkpoint omits random number generator
-states, so the resumed run seeds a new dropout stream. Report this as a
-resumed trajectory. The `evaluate50` launcher reads the pilot's final
-weights, the continuation's `6080.pth` and its final weights, alongside the
-published checkpoint. [Marvin commands](../research-protocols/dino-overlap-fm-finetune.md#continue-the-predicted-run-to-50-epochs)
+The `predicted50` launcher loads the published DINO network weights and
+starts from epoch 1 with fresh Adam and StepLR state. The learning rate
+remains `1e-4` through epoch 50 under `StepLR(step_size=100)`. The
+`evaluate50` launcher reads `3040.pth`, `6080.pth` and `final.pth`
+from the long run alongside the published checkpoint.
+[Marvin commands](../research-protocols/dino-overlap-fm-finetune.md#run-50-epochs-from-the-published-checkpoint)
 
 ### 2. Optionally match additional training with GT masks
 

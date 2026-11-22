@@ -115,13 +115,6 @@ def train_pipeline(root_path):
 
     # create model
     model = build_model(opt)
-    if opt['train'].get('resume_before_epoch_step', False):
-        expected_iter = model.curr_epoch * (total_iters // total_epochs)
-        if (not opt['path'].get('resume') or not 0 < model.curr_epoch < total_epochs
-                or model.curr_iter != expected_iter):
-            raise ValueError('Expected a full checkpoint at a completed epoch before the scheduler step.')
-        model.update_model_per_epoch()
-        logger.info(f'Applied the pending scheduler step for epoch {model.curr_epoch}.')
 
     # create message logger (formatted outputs)
     msg_logger = MessageLogger(opt, model.curr_iter, tb_logger)

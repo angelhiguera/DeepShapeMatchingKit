@@ -80,14 +80,12 @@ Once it completes, `evaluate` compares its `final.pth` with the published
 checkpoint, writing a separate output directory for each. The optional
 `gt` and `evaluate-gt` modes can add the matched GT control later.
 
-### Continue the predicted run to 50 epochs
+### Run 50 epochs from the published checkpoint
 
-`continue50` resumes the completed 10-epoch pilot from `3040.pth`, which
-contains Adam, StepLR and the training counters. It starts at epoch 11 and
-ends at epoch 50 (15,200 batches total), writing to its own run directory.
-The launcher verifies the source checkpoint's counters and restores the
-epoch-10 scheduler step. The checkpoint omits RNG state, so the continuation
-restarts the random stream from the configured seed.
+`predicted50` loads only the published DINO network weights. It starts at
+epoch 1 with a fresh optimizer and scheduler and runs through epoch 50
+(15,200 batches). It writes its checkpoints to the separate
+`echo_match_psmal_dino_overlap_finetune_official_predicted50` run directory.
 
 From the repository root with the experiment branch up to date, schedule
 training and the fixed four-checkpoint evaluation:
@@ -96,8 +94,8 @@ training and the fixed four-checkpoint evaluation:
 scratch=/lustre/scratch/data/s23ahigu_hpc-echomatch
 export TORCH_HOME="$scratch/torch-cache"
 train_job=$(sbatch --parsable --account=ag_ifi_blum --time=06:00:00 \
-  --job-name=echo-dino-continue50 --output="$scratch/echo-dino-continue50-%j.out" \
-  train_partialsmal_dino_overlap.sbatch continue50) &&
+  --job-name=echo-dino-predicted50 --output="$scratch/echo-dino-predicted50-%j.out" \
+  train_partialsmal_dino_overlap.sbatch predicted50) &&
 eval_job=$(sbatch --parsable --account=ag_ifi_blum --time=00:20:00 \
   --dependency="afterok:${train_job%%;*}" \
   --job-name=echo-dino-evaluate50 --output="$scratch/echo-dino-evaluate50-%j.out" \
@@ -105,6 +103,6 @@ eval_job=$(sbatch --parsable --account=ag_ifi_blum --time=00:20:00 \
 printf 'Training: %s\nEvaluation: %s\n' "$train_job" "$eval_job"
 ```
 
-The evaluation prints blocks for the published, epoch-10, epoch-20 and
-epoch-50 checkpoints. Each has its own results directory. Report the
+The evaluation prints blocks for the published checkpoint and epochs 10,
+20 and 50 of the new run. Each has its own results directory. Report the
 complete comparison on official test after training.
