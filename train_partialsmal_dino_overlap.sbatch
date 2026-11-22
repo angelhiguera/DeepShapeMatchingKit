@@ -10,12 +10,12 @@ set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:?Submit from the repository root with sbatch}"
 
 if [[ $# -lt 1 || $# -gt 2 ]]; then
-    echo "Usage: sbatch train_partialsmal_dino_overlap.sbatch {cache|check|predicted|gt|evaluate} [PARTIALSMAL_ROOT]" >&2
+    echo "Usage: sbatch train_partialsmal_dino_overlap.sbatch {cache|check|predicted|evaluate|gt|evaluate-gt} [PARTIALSMAL_ROOT]" >&2
     exit 2
 fi
 mode=$1
 case "$mode" in
-    cache|check|predicted|gt|evaluate) ;;
+    cache|check|predicted|evaluate|gt|evaluate-gt) ;;
     *) echo "Unknown mode: $mode" >&2; exit 2 ;;
 esac
 data_root=$(realpath -- "${2:-../data/PARTIALSMAL}")
@@ -41,7 +41,7 @@ import yaml
 
 mode = sys.argv[1]
 root, override, train_config, test_config = map(Path, sys.argv[2:])
-training = mode != "evaluate"
+training = mode not in ("evaluate", "evaluate-gt")
 split, count = ("train", 304) if training else ("test", 100)
 directory = root / split
 maps = sorted((directory / "maps").glob("*.vts"))
@@ -64,11 +64,12 @@ print(f"Map-set SHA-256: {fingerprint.hexdigest()}")
 config = train_config if training else test_config
 settings = yaml.safe_load(config.read_text())
 published = Path(settings["path"]["resume_state"])
+experiments = Path("experiments/echo_match")
 checkpoints = {"published": published}
-if not training:
-    experiments = Path("experiments/echo_match")
-    for variant in ("gt", "predicted"):
-        checkpoints[variant] = experiments / f"{train_config.stem}_official_{variant}/models/final.pth"
+if mode == "evaluate":
+    checkpoints["predicted"] = experiments / f"{train_config.stem}_official_predicted/models/final.pth"
+elif mode == "evaluate-gt":
+    checkpoints = {"gt": experiments / f"{train_config.stem}_official_gt/models/final.pth"}
 for name, checkpoint in checkpoints.items():
     if not checkpoint.is_file():
         sys.exit(f"Missing {name} checkpoint: {checkpoint}")
@@ -111,10 +112,14 @@ PY
         python -m scripts.check_echomatch_overlap_gradients --opt "$train_config" --override "$override"
         ;;
     evaluate)
-        for name in published gt predicted; do
+        for name in published predicted; do
             echo "Evaluate checkpoint: $name"
             python -u test.py --opt "$test_config" --override "$temporary_dir/official_test_$name.yaml"
         done
+        ;;
+    evaluate-gt)
+        echo "Evaluate checkpoint: gt"
+        python -u test.py --opt "$test_config" --override "$temporary_dir/official_test_gt.yaml"
         ;;
     *)
         python -u train.py --opt "$train_config" --override "$override"

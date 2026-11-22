@@ -22,11 +22,11 @@ original descriptors.
 | Checkpoint | FM weighting in training | Initialization |
 | --- | --- | --- |
 | Published | Initial reference for evaluation | Published DINO checkpoint |
-| `gt` | GT overlap on Y, the original `f2_only` route. | Same published weights, fresh Adam and counters |
 | `predicted` | Soft predicted overlap on Y from the first update. | Same published weights, fresh Adam and counters |
+| `gt` (optional) | GT overlap on Y, the original `f2_only` route. | Same published weights, fresh Adam and counters |
 
-Use the **official PARTIALSMAL splits**. The two fine-tuning runs each receive
-the full official training set of 304 directional maps. They use seed 1234
+Use the **official PARTIALSMAL splits**. Fine-tuning uses the full official
+training set of 304 directional maps. The configuration uses seed 1234
 for reproducibility, one map per update, Adam at `1e-4`, and a fixed budget
 of 10 epochs (3,040 updates). Keep the original loss weights and save a
 numbered recovery checkpoint every 304 updates. Evaluate the weights from
@@ -42,15 +42,18 @@ leads to unstable optimization. Comparing such schedules would require
 development data apart from the official test.
 
 There is no training-time validation or checkpoint selection in this pilot.
-The separate evaluation uses all 100 official test maps and the same three
-checkpoints: published, completed GT fine-tuning and completed predicted-mask
-fine-tuning. The upstream DINO training YAML lists the official test data
+The evaluation uses the published checkpoint and the completed
+predicted-mask fine-tune on the same 100 official test maps. This measures
+the change from published weights to the fine-tuned model as a whole.
+An optional GT fine-tune at the same budget would help separate the effect
+of the predicted mask from the effect of the extra updates. The upstream
+DINO training YAML lists the official test data
 for validation. The published checkpoint's historical selection protocol
 remains unverified. The new fine-tuning stage has no access to the official
 test through its training configuration.
 
-Compare `point`, unmasked `fmap`, `fmap_predicted` and overlap mIoU at
-step zero and across both fine-tuned checkpoints. Better `point` matching
+Compare `point`, unmasked `fmap`, `fmap_predicted` and overlap mIoU on
+the published and fine-tuned checkpoints. Better `point` matching
 would support a gain in the descriptors. A gain specific to
 `fmap_predicted` would suggest a benefit from how the mask and solver
 interact. Track FM loss, BCE and InfoNCE during training.
@@ -69,11 +72,10 @@ export TORCH_HOME=/lustre/scratch/data/s23ahigu_hpc-echomatch/torch-cache
 sbatch --account=ag_ifi_blum train_partialsmal_dino_overlap.sbatch check
 ```
 
-For a cold DINO cache, run `cache` before starting both training runs. It
-traverses only the official training set on an allocated GPU, so the two
-runs can read the same cache. DINO features cached under the older scratch
-split live in a different directory. Use a primed `TORCH_HOME` if the
-compute node has restricted network access. After the gradient check, use `gt` and
-`predicted` for the two training runs. Once both have completed,
-`evaluate` runs the official test comparison using their `final.pth` files
-and the published checkpoint, with a separate output directory for each.
+For a cold DINO cache, `cache` traverses the official training set on an
+allocated GPU. DINO features cached under the older scratch split live in a
+different directory. Use a primed `TORCH_HOME` if the compute node has
+restricted network access. After the gradient check, run `predicted`.
+Once it completes, `evaluate` compares its `final.pth` with the published
+checkpoint, writing a separate output directory for each. The optional
+`gt` and `evaluate-gt` modes can add the matched GT control later.
