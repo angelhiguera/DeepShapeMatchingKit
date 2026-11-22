@@ -79,3 +79,32 @@ restricted network access. After the gradient check, run `predicted`.
 Once it completes, `evaluate` compares its `final.pth` with the published
 checkpoint, writing a separate output directory for each. The optional
 `gt` and `evaluate-gt` modes can add the matched GT control later.
+
+### Continue the predicted run to 50 epochs
+
+`continue50` resumes the completed 10-epoch pilot from `3040.pth`, which
+contains Adam, StepLR and the training counters. It starts at epoch 11 and
+ends at epoch 50 (15,200 batches total), writing to its own run directory.
+The launcher verifies the source checkpoint's counters and restores the
+epoch-10 scheduler step. The checkpoint omits RNG state, so the continuation
+restarts the random stream from the configured seed.
+
+From the repository root with the experiment branch up to date, schedule
+training and the fixed four-checkpoint evaluation:
+
+```bash
+scratch=/lustre/scratch/data/s23ahigu_hpc-echomatch
+export TORCH_HOME="$scratch/torch-cache"
+train_job=$(sbatch --parsable --account=ag_ifi_blum --time=06:00:00 \
+  --job-name=echo-dino-continue50 --output="$scratch/echo-dino-continue50-%j.out" \
+  train_partialsmal_dino_overlap.sbatch continue50) &&
+eval_job=$(sbatch --parsable --account=ag_ifi_blum --time=00:20:00 \
+  --dependency="afterok:${train_job%%;*}" \
+  --job-name=echo-dino-evaluate50 --output="$scratch/echo-dino-evaluate50-%j.out" \
+  train_partialsmal_dino_overlap.sbatch evaluate50) &&
+printf 'Training: %s\nEvaluation: %s\n' "$train_job" "$eval_job"
+```
+
+The evaluation prints blocks for the published, epoch-10, epoch-20 and
+epoch-50 checkpoints. Each has its own results directory. Report the
+complete comparison on official test after training.

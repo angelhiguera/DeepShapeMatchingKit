@@ -82,27 +82,29 @@ and aggregate test logs.
 
 ## Proposed next experiments
 
-### 1. Extend predicted-overlap fine-tuning to 20 epochs total
+### 1. Extend predicted-overlap fine-tuning to 50 epochs total
 
-**Question.** Does the descriptor-matching gain persist or grow with another
-3,040 updates?
+**Question.** Does the descriptor-matching gain persist or grow across a
+longer adjustment?
 
-Set a budget of **20 epochs total** (6,080 updates) before running. Keep the
-published initialization, losses, learning rate, dataset and seed fixed.
-Preserve the 10- and 20-epoch weights and report both on the same test maps
-alongside the published reference. Use `point` as the primary result and
-track the two FM variants and mask mIoU as secondary readouts. Report the
-20-epoch result even if performance drops. This extension is exploratory
-because it is motivated by the 10-epoch test result.
+Fix the endpoint at **50 cumulative epochs** (15,200 batches). Continue the
+completed 10-epoch pilot with the same losses, learning rate and data.
+The additional 40 epochs use 12,160 batches. Compare the published weights
+and the epoch-10, epoch-20 and epoch-50 checkpoints on the same test maps
+after training. Use `point` as the primary result and track both FM variants
+and mask mIoU as secondary readouts. Report all four measurements, including
+any deterioration. This extension is exploratory because it is motivated
+by the 10-epoch test result.
 
-The cleanest trajectory is one 20-epoch run from the published checkpoint,
-keeping its 10-epoch snapshot alongside the final model. If we continue the
-completed run to save compute, use the **full-state `3040.pth`** for Adam,
-scheduler and counters. The `final.pth` file contains network weights only.
-The numbered snapshot precedes the epoch-end scheduler step, and the current
-checkpoint format does not store RNG state. Account for that boundary and
-record it as a resumed trajectory in a new output directory so the original
-checkpoint remains available.
+The `continue50` launcher restores weights, Adam, scheduler and counters
+from the **full-state epoch-10 `3040.pth`**. It applies the pending
+epoch-end scheduler step once and starts epoch 11 in a separate output
+directory. The learning rate remains `1e-4` through epoch 50 under
+`StepLR(step_size=100)`. The checkpoint omits random number generator
+states, so the resumed run seeds a new dropout stream. Report this as a
+resumed trajectory. The `evaluate50` launcher reads the pilot's final
+weights, the continuation's `6080.pth` and its final weights, alongside the
+published checkpoint. [Marvin commands](../research-protocols/dino-overlap-fm-finetune.md#continue-the-predicted-run-to-50-epochs)
 
 ### 2. Optionally match additional training with GT masks
 
@@ -110,7 +112,7 @@ checkpoint remains available.
 use predicted overlap, given the same number of extra updates?
 
 Another 10 epochs with the original GT weighting would directly match the
-completed pilot. If the 20-epoch result drives the next conclusion, compare
+completed pilot. If the 50-epoch result drives the next conclusion, compare
 against a GT run at that same budget. Start from the published checkpoint
 in both conditions. This control is most valuable if we want to attribute
 the gain to predicted weighting. It can wait while we establish whether the
