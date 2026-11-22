@@ -1,0 +1,87 @@
+backend: dp
+type: Echo_Match_Model
+num_gpu: auto
+manual_seed: 1234
+lambda: 1000000
+prune_strategy: predicted_y
+
+path:
+  resume_state: checkpoints/echo_match/echo_match_psmal_dino.pth
+  resume: false
+  require_checkpoint: true
+
+datasets:
+  train_dataset:
+    name: PartialSMALTrain
+    type: PARTIALSMALDataset
+    data_root: ../data/partialsmal_split_seed1234/train
+    return_evecs: true
+    return_faces: true
+    num_evecs: 50
+    return_corr: true
+    return_dist: false
+    return_dino: true
+  val_dataset:
+    name: PartialSMALVal
+    type: PARTIALSMALDataset
+    data_root: ../data/partialsmal_split_seed1234/val
+    return_evecs: true
+    return_faces: true
+    num_evecs: 50
+    return_corr: true
+    return_dist: true
+    return_dino: true
+  batch_size: 1
+  num_worker: 0
+
+networks:
+  echo_match_net:
+    type: Echo_Match_Net
+    input_type: dino
+    cfg:
+      feature_extractor:
+        in_channels: 768
+        out_channels: 128
+      overlap:
+        neighbor_size: 64
+        hidden_channels: 16
+        blocks: 3
+      fmap:
+        n_fmap: 50
+        lambda_: 100
+        resolvant_gamma: 0.5
+
+train:
+  total_epochs: 10
+  optims:
+    echo_match_net:
+      type: Adam
+      lr: 1.0e-4
+      betas: [0.9, 0.99]
+  schedulers:
+    echo_match_net:
+      type: StepLR
+      step_size: 100
+      gamma: 0.5
+  losses:
+    echo_match_loss:
+      type: EchoMatchLoss
+      w_fmap: 1
+      w_acc: 1
+      w_nce_self: 0.1
+      w_nce_cross: 0.1
+
+val:
+  val_freq: 272
+  predicted_overlap: true
+  metrics:
+    geo_error:
+      type: calculate_geodesic_error
+    plot_pck:
+      type: plot_pck
+    plot_iou_curve:
+      type: plot_iou_curve
+
+logger:
+  print_freq: 20
+  save_checkpoint_freq: 272

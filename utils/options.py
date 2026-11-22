@@ -80,6 +80,11 @@ def parse(opt_path, root_path, is_train=True, override_path=None):
         if (val is not None) and ('resume_state' in key or 'pretrain_network' in key):
             opt['path'][key] = osp.expanduser(val)
 
+    if opt['path'].get('require_checkpoint'):
+        checkpoint = opt['path'].get('resume_state')
+        if not checkpoint or not osp.isfile(checkpoint):
+            raise FileNotFoundError(f"Expected an existing path.resume_state checkpoint: {checkpoint}")
+
     sub_folder = opt_path.split('/')[1]
     if is_train:  # specify training log paths
         experiments_root = osp.join(root_path, 'experiments', sub_folder, opt['name'])
