@@ -19,53 +19,61 @@ original descriptors.
 
 ## Protocol
 
-| Run | FM weighting in training | Initialization |
+| Checkpoint | FM weighting in training | Initialization |
 | --- | --- | --- |
-| `baseline` | No training. Evaluate the original checkpoint on the validation fold at step zero. | Published DINO checkpoint |
+| Published | Initial reference for evaluation | Published DINO checkpoint |
 | `gt` | GT overlap on Y, the original `f2_only` route. | Same published weights, fresh Adam and counters |
 | `predicted` | Soft predicted overlap on Y from the first update. | Same published weights, fresh Adam and counters |
 
-This initial pilot uses seed 1234, one directional map per update, 10 epochs
-(2,720 updates), and Adam at `1e-4`. Both training arms keep the original
-loss weights, evaluate and save every 272 updates, and select their best
-checkpoint by validation `point` error. The strict checkpoint check
-prevents silent random initialization if the file is absent. The
-launcher logs the checkpoint and split-manifest SHA-256 for each mode.
+Use the **official PARTIALSMAL splits**. The two fine-tuning runs each receive
+the full official training set of 304 directional maps. They use seed 1234
+for reproducibility, one map per update, Adam at `1e-4`, and a fixed budget
+of 10 epochs (3,040 updates). Keep the original loss weights and save a
+numbered recovery checkpoint every 304 updates. Evaluate the weights from
+`final.pth`, exported after the full budget. The strict checkpoint check
+prevents silent random initialization if the published file is absent.
+The launcher logs the map-set and checkpoint SHA-256 values.
 
 A direct switch from GT masks to soft predictions is the first comparison.
 The pretrained checkpoint makes that comparison feasible from step zero.
 Day 01's mixed frozen-inference results still leave training stability open.
-A GT-to-predicted schedule is a follow-up if the direct switch leads to
-unstable optimization or worse results on the development fold.
+A GT-to-predicted schedule is a separate follow-up if the direct switch
+leads to unstable optimization. Comparing such schedules would require
+development data apart from the official test.
 
-The seed-1234 split has 272 train and 32 validation directional maps. The
-published checkpoint may have seen the validation pairs during its original
-training, since they were drawn from the official training data. Use this
-fold for fine-tuning development and checkpoint selection. Hold the official
-test split for evaluation after decisions are fixed.
+There is no training-time validation or checkpoint selection in this pilot.
+The separate evaluation uses all 100 official test maps and the same three
+checkpoints: published, completed GT fine-tuning and completed predicted-mask
+fine-tuning. The upstream DINO training YAML lists the official test data
+for validation. The published checkpoint's historical selection protocol
+remains unverified. The new fine-tuning stage has no access to the official
+test through its training configuration.
 
 Compare `point`, unmasked `fmap`, `fmap_predicted` and overlap mIoU at
 step zero and across both fine-tuned checkpoints. Better `point` matching
 would support a gain in the descriptors. A gain specific to
 `fmap_predicted` would suggest a benefit from how the mask and solver
-interact. Track FM loss, BCE and InfoNCE during training, and inspect
-validation by direction if aggregates diverge.
+interact. Track FM loss, BCE and InfoNCE during training.
 
 ## Marvin launcher
 
-Run from the repository root on Marvin. Point the launcher to the existing
-research split and use your group Slurm account. The `check` mode builds the
+Run from the repository root on Marvin. The launcher defaults to the official
+dataset root `../data/PARTIALSMAL`. To use another installation, pass its
+PARTIALSMAL root as the second argument. The `check` mode builds the
 published model, runs two real training samples through both strategies, and
 checks the FM-loss gradient into the overlap head. It performs zero optimizer
 updates.
 
 ```bash
-split=/lustre/scratch/data/s23ahigu_hpc-echomatch/partialsmal_split_seed1234
-sbatch --account=ag_ifi_blum train_partialsmal_dino_overlap.sbatch check "$split"
+export TORCH_HOME=/lustre/scratch/data/s23ahigu_hpc-echomatch/torch-cache
+sbatch --account=ag_ifi_blum train_partialsmal_dino_overlap.sbatch check
 ```
 
-For a cold DINO cache, `cache` traverses the train and validation folds on
-an allocated GPU. The DINO Hub cache defaults to `torch-cache` alongside
-the split. Set `TORCH_HOME` to a primed location if the compute node has
-restricted network access. Launch `baseline`, `gt` and `predicted` with
-the same split to run the comparison.
+For a cold DINO cache, run `cache` before starting both training runs. It
+traverses only the official training set on an allocated GPU, so the two
+runs can read the same cache. DINO features cached under the older scratch
+split live in a different directory. Use a primed `TORCH_HOME` if the
+compute node has restricted network access. After the gradient check, use `gt` and
+`predicted` for the two training runs. Once both have completed,
+`evaluate` runs the official test comparison using their `final.pth` files
+and the published checkpoint, with a separate output directory for each.

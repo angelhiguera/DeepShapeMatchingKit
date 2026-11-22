@@ -32,7 +32,7 @@ def create_train_val_dataloader(opt, logger):
                 train_set = build_dataset(dataset_opt)
             else:
                 train_set += build_dataset(dataset_opt)
-        elif dataset_name.startswith('val') or dataset_name.startswith('test'):
+        elif opt.get('val') is not None and dataset_name.startswith(('val', 'test')):
             if val_set is None:
                 val_set = build_dataset(dataset_opt)
             else:
@@ -61,11 +61,15 @@ def create_train_val_dataloader(opt, logger):
                 f'\n\tRequire iter number per epoch: {num_iter_per_epoch}'
                 f'\n\tTotal epochs: {total_epochs}; iters: {total_iters}.')
 
-    val_loader = build_dataloader(
-        val_set, opt['datasets'], 'val', num_gpu=opt['num_gpu'], dist=opt['dist'], sampler=None,
-        seed=opt['manual_seed'])
-    logger.info('Validation statistics:'
-                f'\n\tNumber of val images: {len(val_set)}')
+    val_loader = None
+    if opt.get('val') is not None:
+        if val_set is None:
+            raise ValueError('Validation is configured but no validation dataset was provided.')
+        val_loader = build_dataloader(
+            val_set, opt['datasets'], 'val', num_gpu=opt['num_gpu'], dist=opt['dist'], sampler=None,
+            seed=opt['manual_seed'])
+        logger.info('Validation statistics:'
+                    f'\n\tNumber of val images: {len(val_set)}')
 
     return train_loader, train_sampler, val_loader, total_epochs, total_iters
 
@@ -156,7 +160,7 @@ def train_pipeline(root_path):
                     model.save_model(net_only=False, best=False)
 
                 # validation
-                if opt.get('val') is not None and (model.curr_iter % opt['val']['val_freq'] == 0):
+                if val_loader is not None and (model.curr_iter % opt['val']['val_freq'] == 0):
                     logger.info('Start validation.')
                     torch.cuda.empty_cache()
                     # model.data_root = val_loader.dataset.data_root
@@ -180,17 +184,21 @@ def train_pipeline(root_path):
         # save the current model
         logger.info('Keyboard interrupt. Save model and exit...')
         model.save_model(net_only=False, best=False)
-        model.save_model(net_only=True, best=True)
-        sys.exit(0)
+        if val_loader is not None:
+            model.save_model(net_only=True, best=True)
+            sys.exit(0)
+        raise
 
     consumed_time = str(datetime.timedelta(seconds=int(time.time() - start_time)))
     logger.info(f'End of training. Time consumed: {consumed_time}')
-    logger.info(f'Last Validation.')
-    if opt.get('val') is not None:
-        # model.data_root = val_loader.dataset.data_root
+    if val_loader is not None:
+        logger.info('Last Validation.')
         model.validation(val_loader, tb_logger)
-    logger.info('Save the best model.')
-    model.save_model(net_only=True, best=True)  # save the best model
+        logger.info('Save the best model.')
+        model.save_model(net_only=True, best=True)
+    else:
+        logger.info(f'Save the final model after {model.curr_iter} updates.')
+        model.save_model(net_only=True, best=False)
 
     if tb_logger:
         tb_logger.close()
