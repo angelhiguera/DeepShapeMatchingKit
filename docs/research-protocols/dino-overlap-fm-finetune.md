@@ -154,7 +154,8 @@ Both control jobs were submitted from the detached
 | `29299028` | `gt50`, 50 epochs on official train | `echo-dino-gt50-29299028.out` |
 | `29299029` | `evaluate-gt50`, official test after successful training | `echo-dino-evaluate-gt50-29299029.out` |
 
-Results are pending. Compare against predicted training job `29282882`
-and evaluation job `29282883` at the fixed epochs 10, 20 and 50. Use
-`point` as the primary descriptor metric and record both FM errors and
-overlap quality on the same 100 official test maps. [Predicted-run results](../research-log/2026-11-22-day-02-echomatch-overlap-finetuning.md#follow-up-50-epochs-from-the-published-checkpoint)
+The supplied evaluation log contains all three metric blocks. Against
+predicted training job `29282882` and evaluation job `29282883`, GT has
+lower `point` error at epochs 10 and 20, and predicted weighting has
+lower `point` error at epoch 50. The original rule substantially improves
+the published descriptor matching by itself. [Complete matched results](../research-log/2026-11-22-day-02-echomatch-overlap-finetuning.md#matched-gt-control)

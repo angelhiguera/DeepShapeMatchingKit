@@ -119,18 +119,53 @@ by the pilot's test result, and the logs provide rounded aggregates.
 The contribution of predicted weighting remains entangled with the
 effect of extra training.
 
+## Matched GT and frozen-predictor results on 23 November
+
+### Matched GT control
+
+The GT control changed only the overlap weights supplied to the FM solver
+during training. It used the published initialization and the same data,
+seed and budget as the 50-epoch predicted run. The first, second and third
+metric blocks in job `29299029` correspond to epochs 10, 20 and 50 in
+that order, as defined by the submitted launcher. The GT label refers to
+training. At test time `fmap_predicted` uses the model's own predicted
+probabilities for each checkpoint. [Fixed evaluation order](https://github.com/angelhiguera/DeepShapeMatchingKit/blob/48071698d2deb8c6387f9079da01b841fa7d4c8f/train_partialsmal_dino_overlap.sbatch#L137)
+
+| Training weights | Epoch | `point` ↓ | `fmap` ↓ | `fmap_predicted` ↓ | Mask mIoU ↑ | Balanced accuracy ↑ |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| GT | 10 | 0.0456 | 0.0760 | 0.0739 | 85.28% | 93.10% |
+| Predicted | 10 | 0.0463 | 0.0758 | 0.0746 | 84.78% | 92.83% |
+| GT | 20 | 0.0467 | 0.0762 | 0.0741 | 85.28% | 93.03% |
+| Predicted | 20 | 0.0473 | 0.0770 | 0.0748 | 85.40% | 93.03% |
+| GT | 50 | 0.0466 | 0.0751 | 0.0741 | 84.08% | 92.48% |
+| Predicted | 50 | 0.0460 | 0.0750 | 0.0738 | 84.89% | 92.91% |
+
+The original GT training rule is sufficient to improve `point` over
+the published 0.0493. At epochs 10 and 20 the GT control has lower
+`point` and `fmap_predicted` error. At epoch 50 the predicted run has
+slightly lower error on all three matching readouts. Across the measured
+milestones, the lowest `point` error is GT at epoch 10 (0.0456),
+and the lowest masked FM error is predicted at epoch 50 (0.0738 versus
+GT's 0.0739 at epoch 10). This supports a benefit from fine-tuning and
+shows a difference in the trajectories under the two training rules.
+It gives limited evidence for a general advantage of predicted weights.
+The comparisons use one seed and rounded test aggregates.
+
+### Frozen predictor at 10 epochs
+
+The frozen run trains the matching extractor with FM and InfoNCE and uses
+the fixed published predictor for the FM weighting. The official test
+log for `29299031` shows `point` improving from **0.0493 to 0.0468**
+(5.1%). Unmasked FM improves from 0.0771 to 0.0767, while masked
+FM moves from 0.0757 to 0.0767. For the fine-tuned extractor, the
+two FM errors round to the same value. Mask mIoU remains 84.75% and
+balanced accuracy remains 92.75%, as expected for the fixed predictor.
+The result shows that matching can improve with overlap predictions
+held fixed. The optional `frozen-unmasked` run is the matched comparison
+needed to isolate whether applying those fixed probabilities helped
+the extractor learn. [Frozen experiment protocol](https://github.com/angelhiguera/DeepShapeMatchingKit/blob/experiment/dino-frozen-overlap/docs/research-protocols/dino-frozen-overlap.md)
+
 ## Open experiments
-
-### Match additional training with GT masks, if attribution is needed
-
-**Question.** What portion of the gain is specific to letting the FM solver
-use predicted overlap, given the same number of extra updates?
-
-Another 10 epochs with the original GT weighting would directly match the
-completed pilot. To interpret the 50-epoch trajectory, run the control for
-50 epochs from the published checkpoint and score the same milestones.
-Use this control when the goal is to attribute the gain to predicted
-weighting.
 
 ### Test overlap-aware cross-shape InfoNCE separately
 
