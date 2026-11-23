@@ -31,6 +31,10 @@ This codebase is based on [ULRSSM](https://github.com/dongliangcao/Unsupervised-
 
 Contributions are welcome! Whether it's adding new methods, improving existing implementations, or fixing bugs — feel free to open an issue or submit a pull request.
 
+## Research diary
+
+The [research log](docs/research-log/README.md) documents the questions, experiments and conclusions behind ongoing EchoMatch investigations. [Day 01](docs/research-log/2026-11-21-day-01-echomatch-overlap.md) evaluates overlap weighting at inference; [Day 02](docs/research-log/2026-11-22-day-02-echomatch-overlap-finetuning.md) compares joint and frozen-predictor training and links to the technical protocols in their own branches.
+
 
 ## Installation
 ```bash
