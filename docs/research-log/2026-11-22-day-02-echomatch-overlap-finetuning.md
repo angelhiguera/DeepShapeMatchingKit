@@ -1,148 +1,75 @@
-# Day 02 — Fine-tuning EchoMatch through predicted overlap
+# Day 02 — Can predicted overlap help EchoMatch learn better correspondences?
 
-**22 November 2026 · Published DINO initialization · Official PARTIALSMAL splits**
+**22 November 2026 · Follow-up experiments and controls: 23 November 2026 · DINO EchoMatch on PARTIALSMAL**
 
-## Research questions
+This is the **research narrative**: why we tried these ideas, what each experiment tested, what the results mean, and what remains unresolved. Reproducibility details, run identifiers, configurations and full evaluation records live in the linked **experiment-specific protocols**. The two ideas are implemented on separate branches.
 
-[Day 01](2026-11-21-day-01-echomatch-overlap.md) tested predicted overlap as an
-inference-time intervention with frozen descriptors. Here we ask whether
-letting the functional-map (FM) loss use the predicted overlap during
-training can help EchoMatch learn better descriptors.
+## From Day 01 to a training hypothesis
 
-1. **Can the FM loss reach the overlap predictor?** The baseline gives the
-   solver the GT overlap mask on Y during training. Replacing it with the
-   predicted probabilities should open a gradient path from the FM loss
-   through the solver to the overlap head.
-2. **Does the adjusted model learn descriptors that match better?** The
-   primary readout is direct descriptor matching (`point`). Unmasked
-   `fmap` and `fmap_predicted` distinguish improvements visible in the
-   descriptors from gains that appear when the solver uses the weights.
-3. **Does mask quality change?** Report overlap mIoU and balanced accuracy
-   alongside geodesic error. A similar global IoU can conceal changes
-   in where the predictor makes errors.
+On [Day 01](2026-11-21-day-01-echomatch-overlap.md), we asked whether EchoMatch's existing predicted overlap could help functional-map (FM) matching **without retraining the model**. We compared direct nearest-neighbor descriptor matching (`point`), the original unmasked FM (`fmap`), FM weighted by *predicted* overlap (`fmap_predicted`), and an oracle GT-mask variant on the official PARTIALSMAL test set.
 
-## Completed experiment
+Predicted weighting reduced the pooled FM geodesic error from **0.077141 to 0.075736**. It was not a uniform win across individual shape pairs, and direct descriptor matching was still substantially better (**0.049341**). The experiment suggested that the overlap signal could sometimes help the solver, but it **did not tell us whether using that signal during training would improve the learned descriptors**.
 
-The model started from the published DINO checkpoint and used continuous
-predicted probabilities on Y from the first update. This weighting applies
-to the FM solver. BCE and both InfoNCE terms retain their original
-definitions. The pilot used seed 1234, Adam at `1e-4`, and 10 epochs over
-the **304 directional maps in official train** for 3,040 configured updates.
-The evaluation compared the published and final fine-tuned checkpoints
-on the **100 official test maps**. The test results were recorded after the
-fixed-budget training run. [Protocol](../research-protocols/dino-overlap-fm-finetune.md)
+There is also an important asymmetry in the original EchoMatch setup: the model **predicts overlap**, but its FM loss during training uses **ground-truth overlap on shape Y**. In ordinary evaluation, the FM solver uses unmasked descriptors. This raised our central question:
 
-| Marvin job | Outcome |
-| --- | --- |
-| `29280263` | Gradient check completed in 1 min 13 s on two real train pairs, with zero optimizer updates. |
-| `29280264` | Predicted-overlap fine-tuning completed in 53 min 21 s. |
-| `29280265` | Evaluation of the two checkpoints completed in 1 min 58 s. |
+> **Can predicted overlap become a useful training signal for correspondence learning, rather than only an inference-time adjustment?**
 
-All three jobs reported exit code `0:0`. The record uses the supplied
-Slurm status and evaluation log excerpts. The launcher version is
-[`f1a19f5`](https://github.com/angelhiguera/DeepShapeMatchingKit/commit/f1a19f5b7875dabab2fa44752dd569eefed50b49).
-Archive the full job logs with the checkpoint and map-set digests they report
-to confirm the exact run provenance.
+A gain after training would not automatically answer *why* it happened. It might come from learning better descriptors, from using overlap weights in the solver, from improving the overlap predictor, or simply from giving the pretrained model more optimization steps. We designed two branches and matched controls to separate some of those explanations.
 
-### Gradient check
+## Idea 1 — Let the FM loss train through predicted overlap
 
-Measured the gradient of **FM loss alone** with respect to overlap-head
-parameters on the same samples and initial weights.
+**Research question.** What happens if, instead of supplying GT overlap to the FM solver during training, we weight Y's descriptors by the model's own **continuous predicted overlap probabilities**? Can the resulting FM gradients improve correspondences and the overlap predictor?
 
-| Direction | GT weighting | Predicted weighting |
-| --- | --- | --- |
-| `cuts_14_cow_06` → `cuts_6_fox_03` | No gradient into the head | Norm 2.10025, 31/31 parameter tensors connected |
-| `cuts_1_dog_06` → `cuts_18_fox_02` | No gradient into the head | Norm 6.40092, 31/31 parameter tensors connected |
+**Experiment.** We initialized from the published DINO EchoMatch checkpoint, replaced the GT weighting with predicted probabilities, and kept the original FM, BCE and InfoNCE objectives. Unlike the baseline's GT mask, the soft predicted weights are part of the computation graph: **FM gradients can flow into the overlap head and the shared descriptor extractor**. We checked that gradient path explicitly and fine-tuned for 10, 50 and 100 epochs. To test the effect of *predicted* weighting rather than just extra training, we also ran a **matched 50-epoch GT-weighted fine-tuning control**.
 
-Both predicted-path norms were finite and nonzero. This establishes a
-training signal on these samples. The check does not measure how much it
-improves correspondence or whether the signal remains stable over longer runs.
+**What we learned.** The gradient check succeeded. Joint fine-tuning improved direct matching and FM errors over the published checkpoint. By 100 epochs, `point` error had decreased from **0.0493 to 0.0460**, and `fmap_predicted` from **0.0757 to 0.0731**. However, the GT control also improved `point`: GT was better at epochs 10 and 20, while predicted weighting was slightly better at epoch 50. Thus, **the improvement relative to the published checkpoint is real for this run, but a consistent advantage attributable specifically to predicted weighting is not established**. Extending joint fine-tuning from 50 to 100 epochs improved FM metrics without a measurable change in `point` at the reported precision.
 
-### Official test results
+**Branch and detailed protocol:** [`experiment/dino-overlap-fm-finetune`](https://github.com/angelhiguera/DeepShapeMatchingKit/blob/experiment/dino-overlap-fm-finetune/docs/research-protocols/dino-overlap-fm-finetune.md) — architecture and gradient path, controls, job records, training commands and full results.
 
-| Metric | Published DINO | After 10 epochs with predicted overlap | Change |
-| --- | ---: | ---: | ---: |
-| `point` mean geodesic error ↓ | 0.0493 | **0.0463** | −6.1% relative |
-| `fmap` without a mask ↓ | 0.0771 | **0.0758** | −1.7% relative |
-| `fmap_predicted` ↓ | 0.0757 | **0.0746** | −1.5% relative |
-| Mask mIoU ↑ | 84.75% | 84.78% | +0.03 percentage points |
-| Balanced mask accuracy ↑ | 92.75% | 92.83% | +0.08 percentage points |
+## Idea 2 — Can a *frozen* overlap predictor guide descriptor learning?
 
-The mask values were identical for both shape roles at the precision logged.
-Relative changes above use the rounded job output.
+**Research question.** Does the overlap predictor have to adapt for correspondence learning to improve? Or is the overlap signal from the published checkpoint already useful enough to guide a separate trainable descriptor extractor?
 
-The largest observed gain was in direct descriptor matching. Unmasked FM
-also improved, while the global mask metrics changed little. The incremental
-effect of using the mask at inference was similar for both checkpoints
-(−0.0014 published and −0.0012 after fine-tuning). This supports a gain in
-descriptor matching after the full fine-tuning intervention. How much of
-that gain comes from predicted weighting and how much comes from the extra
-training remains open. The recorded results are from one fine-tuning run
-and aggregate test logs.
+**Experiment.** We kept an independent copy of the published predictor **fully frozen**, including the feature extractor that produces the inputs to its overlap head. Freezing only the final head would not have guaranteed constant predictions as the shared extractor changed. The frozen teacher supplied the same overlap probabilities for a given input pair throughout training, while a student extractor learned under FM and InfoNCE losses; overlap BCE was disabled. We compared **frozen-weighted** and **frozen-unmasked** students at the same 10-epoch budget, then examined the weighted run through 50 epochs.
 
-## Follow-up: 50 epochs from the published checkpoint
+**What we learned.** At 10 epochs, both students improved `point` similarly (to **0.0468** with weighting and **0.0469** without it). But weighting improved the FM readouts much more clearly: compared with the matched unmasked training, `fmap` fell from **0.0800 to 0.0767** and `fmap_predicted` from **0.0785 to 0.0767**. The predictor's mask mIoU stayed at **84.75%**, as expected. Further weighted training improved FM errors but barely changed direct descriptor matching. **An already-trained, fixed overlap signal can help learn descriptors that work better with the FM solver, without demonstrating a meaningful extra gain in direct nearest-neighbor matching.**
 
-**Question.** Does the descriptor-matching gain persist or grow with more
-fine-tuning?
+**Branch and detailed protocol:** [`experiment/dino-frozen-overlap`](https://github.com/angelhiguera/DeepShapeMatchingKit/blob/experiment/dino-frozen-overlap/docs/research-protocols/dino-frozen-overlap.md) — frozen teacher/student separation, matched no-weighting control, jobs, commands and full results.
 
-Training job `29282882` ran 50 epochs (15,200 configured batches) in
-41 min 05 s. It started at epoch 0 and iteration 0 with the published DINO
-weights. The logged SHA-256 matches the Day 01 checkpoint digest
-`acbe75fd2091980fb9628f4458b118287af5639e11f05023c1af42a69849fe59`.
-Evaluation job `29282883` completed in 2 min 39 s. Both reported exit code
-`0:0`. The reported results are from
-`echo-dino-evaluate50-29282883.out`. [Launcher revision](https://github.com/angelhiguera/DeepShapeMatchingKit/commit/8d0972e59d6d725aa202f40f278fae2dd048833a) · [Marvin commands](../research-protocols/dino-overlap-fm-finetune.md#run-50-epochs-from-the-published-checkpoint)
+## Results and what the controls tell us
 
-The three fine-tuned checkpoints come from one run, with the same losses,
-learning rate and official training split as the 10-epoch pilot. The
-endpoint and evaluation points were fixed before this run.
+All reported comparisons below use the **304 official training maps**, **100 official test maps** and the published DINO checkpoint as the starting point. Lower correspondence error is better. `point` assesses nearest-neighbor matching directly in descriptor space; `fmap` is unmasked FM; `fmap_predicted` weights overlap in the evaluation solver. The last column measures predicted-overlap mask quality, **not** matching accuracy.
 
-| Checkpoint | `point` error ↓ | `fmap` error ↓ | `fmap_predicted` error ↓ | Mask mIoU ↑ | Balanced accuracy ↑ |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Published | 0.0493 | 0.0771 | 0.0757 | 84.75% | 92.75% |
-| Epoch 10 | 0.0463 | 0.0758 | 0.0746 | 84.78% | 92.83% |
-| Epoch 20 | 0.0473 | 0.0770 | 0.0748 | **85.40%** | **93.03%** |
-| Epoch 50 | **0.0460** | **0.0750** | **0.0738** | 84.89% | 92.91% |
+| Training strategy / checkpoint | `point` ↓ | `fmap` ↓ | `fmap_predicted` ↓ | Mask mIoU ↑ |
+| --- | ---: | ---: | ---: | ---: |
+| Published DINO checkpoint | 0.0493 | 0.0771 | 0.0757 | 84.75% |
+| GT overlap fine-tune, epoch 10 | **0.0456** | 0.0760 | 0.0739 | 85.28% |
+| Joint predicted overlap, epoch 10 | 0.0463 | 0.0758 | 0.0746 | 84.78% |
+| GT overlap fine-tune, epoch 50 | 0.0466 | 0.0751 | 0.0741 | 84.08% |
+| Joint predicted overlap, epoch 50 | 0.0460 | 0.0750 | 0.0738 | 84.89% |
+| Joint predicted overlap, epoch 100 | 0.0460 | **0.0737** | **0.0731** | **85.58%** |
+| Frozen teacher, **no** FM weighting, epoch 10 | 0.0469 | 0.0800 | 0.0785 | 84.75% |
+| Frozen teacher, predicted FM weighting, epoch 10 | 0.0468 | 0.0767 | 0.0767 | 84.75% |
+| Frozen teacher, predicted FM weighting, epoch 50 | 0.0467 | 0.0759 | 0.0757 | 84.75% |
 
-Epoch 10 matches the pilot on all five reported metrics at log precision.
-Epoch 50 has the lowest error among the measured checkpoints for each
-matching method. For `point`, the relative reduction is **6.7% versus the
-published checkpoint** and **0.65% versus epoch 10**. Most of the observed
-descriptor gain therefore appears by epoch 10. All three matching errors
-rise at epoch 20 relative to epoch 10 before improving at epoch 50.
+**Three distinctions matter when interpreting these numbers:**
 
-Mask IoU and balanced accuracy peak at epoch 20, where the matching errors
-are worse than at epochs 10 and 50. Overall mask agreement and
-correspondence quality move differently on this trajectory. The
-improvements are descriptive. This is one exploratory trajectory motivated
-by the pilot's test result, and the logs provide rounded aggregates.
-The contribution of predicted weighting remains entangled with the
-effect of extra training.
+1. **Fine-tuning itself helps.** The matched GT run improves `point` over the published model, so a published-versus-predicted comparison alone cannot establish a benefit from predicted weighting. The relative lead between GT and predicted weighting changes over the 10–50-epoch trajectory.
+2. **Better overlap masks are not the same as better correspondences.** In the joint run, mask mIoU and matching accuracy do not peak at the same epoch. In the frozen run, matching changes even though the overlap predictions are fixed.
+3. **FM gains and descriptor gains are different claims.** The frozen weighted-vs-unmasked control supports a benefit to the FM readout, but its `point` difference is just 0.0001 at log precision. Moreover, frozen vs joint fine-tuning is **not** a fully controlled head-to-head test: freezing the teacher also removes BCE and changes which parameters are trainable.
 
-## Open experiments
+## Conclusions and next questions
 
-### Match additional training with GT masks, if attribution is needed
+The experiments give evidence that **overlap information can be used during training to improve FM correspondence behavior**. They do **not** establish that predicted overlap is always superior to GT overlap, that a better mask IoU reliably produces better correspondences, or that a trainable predictor is necessary for the improvement seen with a frozen teacher.
 
-**Question.** What portion of the gain is specific to letting the FM solver
-use predicted overlap, given the same number of extra updates?
+These are exploratory, single-seed fine-tuning runs. Metrics are rounded official-test aggregates; the matched GT comparison ends at 50 epochs, whereas the joint trajectory reaches 100. We should avoid choosing new methods or checkpoints based only on repeatedly inspecting the official test set: subsequent attribution experiments should have a separate development/validation split.
 
-Another 10 epochs with the original GT weighting would directly match the
-completed pilot. To interpret the 50-epoch trajectory, run the control for
-50 epochs from the published checkpoint and score the same milestones.
-Use this control when the goal is to attribute the gain to predicted
-weighting.
+A useful next direction is to ask whether overlap should influence **descriptor learning itself**, not only the FM solver. For example, overlap-aware cross-shape InfoNCE could downweight non-overlapping candidate negatives while preserving GT positives. Another distinct hypothesis is a **GT-to-predicted weighting schedule** during training, introduced only with a controlled validation protocol. Neither is an outcome of Day 02.
 
-### Test overlap-aware cross-shape InfoNCE separately
+## Code, protocols and reproducibility
 
-**Question.** Do descriptors improve when vertices likely outside the
-overlap have less influence as candidate correspondences in cross-shape
-InfoNCE?
+- **Joint predictor + descriptor fine-tuning:** [`experiment/dino-overlap-fm-finetune` protocol](https://github.com/angelhiguera/DeepShapeMatchingKit/blob/experiment/dino-overlap-fm-finetune/docs/research-protocols/dino-overlap-fm-finetune.md). Includes the published/GT/predicted comparisons, gradient verification, full run records and Marvin commands.
+- **Frozen predictor + trainable descriptor extractor:** [`experiment/dino-frozen-overlap` protocol](https://github.com/angelhiguera/DeepShapeMatchingKit/blob/experiment/dino-frozen-overlap/docs/research-protocols/dino-frozen-overlap.md). Includes the matched unweighted control and the 10–50-epoch fixed-teacher results.
+- **Previous experiment:** [Day 01 — inference-time overlap weighting](2026-11-21-day-01-echomatch-overlap.md).
 
-Hold the FM strategy fixed and compare original InfoNCE with a variant that
-adds `log(w_j)` to Y candidate logits, and symmetrically to X candidate
-logits in reverse. Keep each GT positive at weight 1 and give other candidates
-a positive weight floor based on the predicted overlap. Start with detached
-probabilities. This isolates the effect of changing the candidate weights
-on descriptor learning. The within-shape InfoNCE term stays as defined
-in the baseline. Set the candidate-weight rule before the test comparison.
-Use direct `point` matching as the primary metric.
+**Documentation convention:** The daily research logs live on `master` and describe the questions, decisions and findings across branches. Each experiment branch owns its implementation and technical protocol. This allows an individual day's research to develop into more than one independent experiment without duplicating its narrative.
