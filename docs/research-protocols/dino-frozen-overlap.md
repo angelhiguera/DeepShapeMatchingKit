@@ -66,31 +66,54 @@ gradients to the student.
 
 ## 23 November 2026 submission
 
-Both jobs were submitted from the detached `DeepShapeMatchingKit-frozen`
+The jobs were submitted from the detached `DeepShapeMatchingKit-frozen`
 checkout at [`e17a99c`](https://github.com/angelhiguera/DeepShapeMatchingKit/commit/e17a99cbdd3687c6f88fb979dcc7da6a2285d64f).
 
 | Job | Mode | Output log |
 | --- | --- | --- |
 | `29299030` | `frozen`, training on the official train split | `echo-dino-frozen-29299030.out` |
 | `29299031` | `evaluate-frozen`, official test after successful training | `echo-dino-evaluate-frozen-29299031.out` |
+| `29315145` | `frozen-unmasked`, 10 epochs and 3,040 iterations | `echo-dino-frozen-unmasked-29315145.out` |
+| `29315146` | `evaluate-frozen-unmasked`, published and matched unmasked control | `echo-dino-evaluate-frozen-unmasked-29315146.out` |
+| `29316280` | 50-epoch `frozen` run from the published DINO weights | `echo-dino-frozen50-29316280.out` |
+| `29317866` | Evaluate epochs 10, 20 and 50 from the 50-epoch run | `echo-dino-evaluate-frozen50-29317866.out` |
+
+The matched unmasked job completed in 8 min 53 s. The 50-epoch job
+completed in 37 min 22 s. The longer run used the same frozen teacher
+and training objective, with a total budget of 15,200 iterations.
 
 ### Official test results
 
 | Checkpoint | `point` ↓ | `fmap` ↓ | `fmap_predicted` ↓ | Mask mIoU ↑ | Balanced accuracy ↑ |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Published | 0.0493 | 0.0771 | 0.0757 | 84.75% | 92.75% |
+| Frozen-unmasked, epoch 10 | 0.0469 | 0.0800 | 0.0785 | 84.75% | 92.75% |
 | Frozen, epoch 10 | 0.0468 | 0.0767 | 0.0767 | 84.75% | 92.75% |
+| Frozen, epoch 20 | 0.0466 | 0.0761 | 0.0760 | 84.75% | — |
+| Frozen, epoch 50 | 0.0467 | 0.0759 | 0.0757 | 84.75% | — |
 
-Direct descriptor matching improves by 5.1% relative to the published
-checkpoint on the 100 official test maps. This shows that the extractor
-can improve while the overlap predictor remains fixed. Both mask metrics
-reproduce the published values at log precision.
+The 10-epoch snapshot from the 50-epoch run reproduces the pilot errors
+and mIoU at log precision. The excerpt for the longer run contains mIoU
+and correspondence errors. Balanced accuracy is shown where it was
+reported.
 
-The masked FM error increases from 0.0757 to 0.0767. At epoch 10 it rounds
-to the same value as unmasked FM. The fixed predictor can support training
-while its inference-time weighting gives a different result. To attribute
-the `point` gain to using those fixed probabilities in the training solver,
-compare against the matched `frozen-unmasked` run. This is still pending.
+At the matched 10-epoch budget, both runs improve direct descriptor
+matching by about 5% relative to the published checkpoint. Their
+`point` errors differ by 0.0001 at log precision. The clearer difference
+is in the FM readouts. Weighting Y during training reduces unmasked
+`fmap` error from 0.0800 to 0.0767 and `fmap_predicted` error from
+0.0785 to 0.0767. Because the teacher, initialization and losses were
+matched, this is evidence that the weighting helped the descriptors
+work with the FM solver in this comparison.
+
+From epochs 10 to 50, unmasked FM error falls to 0.0759 and masked FM
+error to 0.0757, matching the published masked FM result at log precision.
+`point` stays between 0.0466 and 0.0468. The extra epochs therefore
+mostly benefit the FM readouts. The mIoU stays at 84.75% with the fixed
+teacher. These are descriptive results from fine-tuning the published
+DINO checkpoint with a single seed. The paired unmasked comparison
+covers 10 epochs. For improving `point`, the observed plateau gives
+little reason to extend this frozen run further under the same setup.
 [Comparison with the other fine-tuning runs](https://github.com/angelhiguera/DeepShapeMatchingKit/blob/experiment/dino-overlap-fm-finetune/docs/research-log/2026-11-22-day-02-echomatch-overlap-finetuning.md#matched-gt-and-frozen-predictor-results-on-23-november)
 
 ## Marvin launcher
