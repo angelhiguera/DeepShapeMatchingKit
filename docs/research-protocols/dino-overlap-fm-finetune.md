@@ -1,5 +1,26 @@
 # DINO fine-tuning with predicted overlap in the FM solver
 
+## Experiment at a glance
+
+### Motivation — what are we trying to learn?
+
+EchoMatch predicts the region shared by two partial shapes, but its original functional-map (FM) training uses **ground-truth overlap** to weight the descriptors of shape Y. This creates a gap between the overlap predictions available at inference and the information used to learn correspondences. **Can the model learn better shape correspondences when the FM loss is conditioned on its *own* predicted overlap, rather than a ground-truth mask?** And, crucially, is any improvement caused by that change or simply by additional fine-tuning?
+
+### What we tested
+
+Starting from the published DINO-based EchoMatch checkpoint, we multiplied Y's descriptors by its **soft predicted overlap probabilities** before the FM solver. Unlike the original GT-masked path, this makes the FM loss differentiable through the overlap predictor and the shared descriptor extractor. We retained BCE and InfoNCE, fine-tuned on the **304 official PARTIALSMAL training maps**, and evaluated on the **100 official test maps**. We inspected 10-, 20-, 50-, and 100-epoch checkpoints and ran a **matched 50-epoch ground-truth-mask control** to assess whether gains can be attributed to predicted weighting rather than extra training. We tracked direct descriptor matching (`point`), unmasked FM (`fmap`), predicted-overlap-weighted FM (`fmap_predicted`), and overlap accuracy.
+
+### What we found
+
+The predicted-overlap path successfully delivered nonzero FM gradients to the overlap head. Relative to the published checkpoint, the **100-epoch** run reduced `point` geodesic error from **0.0493 to 0.0460** and `fmap_predicted` error from **0.0757 to 0.0731**, while mask mIoU rose from **84.75% to 85.58%**. However, the matched GT control also improved direct matching: the evidence **does not isolate a consistent advantage of predicted-overlap training for descriptor quality**. Extended joint training continued to improve FM accuracy after direct `point` matching had largely plateaued. The evidence is promising for the FM readout, but is exploratory (one seed, rounded test aggregates), and the 100-epoch joint run has no 100-epoch GT control.
+
+**Takeaway:** Training through predicted overlap is feasible and can improve correspondence metrics, but **the specific contribution of predicted weighting over conventional GT-mask fine-tuning remains uncertain**.
+
+For the detailed training setup, reproducibility commands, and matched results, continue below or see the [Day 02 research log](../research-log/2026-11-22-day-02-echomatch-overlap-finetuning.md).
+
+---
+
+
 This experiment starts from the published DINO EchoMatch checkpoint used in
 [Day 01](../research-log/2026-11-21-day-01-echomatch-overlap.md). The published
 forward pass derives the overlap head's input from soft correspondence
