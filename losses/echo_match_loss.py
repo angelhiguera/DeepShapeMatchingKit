@@ -87,8 +87,10 @@ class EchoMatchLoss(nn.Module):
 
 
         # overlap loss
-        acc_loss = self.binary_loss(overlap_score12, gt_partiality_mask12.float()) * self.w_acc
-        acc_loss += self.binary_loss(overlap_score21, gt_partiality_mask21.float()) * self.w_acc
+        acc_loss = C12.new_zeros(())
+        if self.w_acc:
+            acc_loss = self.binary_loss(overlap_score12, gt_partiality_mask12.float()) * self.w_acc
+            acc_loss += self.binary_loss(overlap_score21, gt_partiality_mask21.float()) * self.w_acc
 
         loss += acc_loss
 

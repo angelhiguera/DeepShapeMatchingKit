@@ -13,6 +13,58 @@ class Echo_Match_Model(PartialBaseModel):
         self.lambda_ = opt.get('lambda', 0)
         print(f"prune_strategy: {self.prune_strategy}")
 
+    def _predict_overlap(self, data_x, data_y, feat_x_normed, feat_y_normed):
+        return self._overlap_from_descriptors(
+            self.networks['echo_match_net'], data_x, data_y, feat_x_normed, feat_y_normed)
+
+    @staticmethod
+    def _overlap_from_descriptors(network, data_x, data_y, feat_x_normed, feat_y_normed):
+        # compute similarity and permutation matrices
+        similarity = torch.bmm(feat_x_normed, feat_y_normed.transpose(1, 2))
+        Pxy = network.permutation_network(similarity).squeeze(0)
+        Pyx = network.permutation_network(similarity.transpose(1, 2)).squeeze(0)
+        clean_verts_x = data_x["verts"][0]
+        clean_verts_y = data_y["verts"][0]
+
+        # get or compute distance matrices
+        if "dist" in data_x and "dist" in data_y:
+            dists_x = data_x["dist"][0]
+            dists_y = data_y["dist"][0]
+        else:
+            dists_x = torch.cdist(clean_verts_x, clean_verts_x)
+            dists_y = torch.cdist(clean_verts_y, clean_verts_y)
+
+        # get nearest neighbor indices
+        neighbor_size = network.cfg["overlap"]["neighbor_size"]
+        k_x = min(neighbor_size, dists_x.shape[1])
+        k_y = min(neighbor_size, dists_y.shape[1])
+        _, idx_x = torch.topk(dists_x, k_x, largest=False, sorted=True)
+        _, idx_y = torch.topk(dists_y, k_y, largest=False, sorted=True)
+
+        # compute overlap scores
+        matrix_x = Pxy @ Pyx
+        matrix_y = Pyx @ Pxy
+
+        score_x = matrix_x.gather(1, idx_x)
+        score_y = matrix_y.gather(1, idx_y)
+
+        score_x = score_x / score_x.max()
+        score_y = score_y / score_y.max()
+
+        # Pad scores with zeros if k is smaller than overlap_in
+        if k_x < neighbor_size:
+            pad_size = neighbor_size - k_x
+            score_x = torch.cat([score_x, torch.zeros(score_x.shape[0], pad_size, device=score_x.device)], dim=1)
+
+        if k_y < neighbor_size:
+            pad_size = neighbor_size - k_y
+            score_y = torch.cat([score_y, torch.zeros(score_y.shape[0], pad_size, device=score_y.device)], dim=1)
+
+        # predict overlap scores using diffusion net
+        overlap_score12 = network.overlap_diffusion_net(x_in=score_x.unsqueeze(0), data=data_x).flatten()
+        overlap_score21 = network.overlap_diffusion_net(x_in=score_y.unsqueeze(0), data=data_y).flatten()
+        return overlap_score12, overlap_score21
+
     def feed_data(self, data):
         # get data pair
         data = to_device(data, self.device)
@@ -29,49 +81,7 @@ class Echo_Match_Model(PartialBaseModel):
 
         feat_x_normed = F.normalize(feat_x, dim=-1, p=2)
         feat_y_normed = F.normalize(feat_y, dim=-1, p=2)
-        # compute similarity and permutation matrices
-        similarity = torch.bmm(feat_x_normed, feat_y_normed.transpose(1, 2))
-        Pxy = self.networks['echo_match_net'].permutation_network(similarity).squeeze(0)
-        Pyx = self.networks['echo_match_net'].permutation_network(similarity.transpose(1, 2)).squeeze(0)
-        clean_verts_x = data_x["verts"][0]
-        clean_verts_y = data_y["verts"][0]
-
-        # get or compute distance matrices
-        if "dist" in data_x and "dist" in data_y:
-            dists_x = data_x["dist"][0]
-            dists_y = data_y["dist"][0]
-        else:
-            dists_x = torch.cdist(clean_verts_x, clean_verts_x)
-            dists_y = torch.cdist(clean_verts_y, clean_verts_y)
-
-        # get nearest neighbor indices
-        k_x = min(self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"], dists_x.shape[1])
-        k_y = min(self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"], dists_y.shape[1])
-        _, idx_x = torch.topk(dists_x, k_x, largest=False, sorted=True)
-        _, idx_y = torch.topk(dists_y, k_y, largest=False, sorted=True)
-
-        # compute overlap scores
-        matrix_x = Pxy @ Pyx
-        matrix_y = Pyx @ Pxy
-
-        score_x = matrix_x.gather(1, idx_x)
-        score_y = matrix_y.gather(1, idx_y)
-
-        score_x = score_x / score_x.max()
-        score_y = score_y / score_y.max()
-
-        # Pad scores with zeros if k is smaller than overlap_in
-        if k_x < self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"]:
-            pad_size = self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"] - k_x
-            score_x = torch.cat([score_x, torch.zeros(score_x.shape[0], pad_size, device=score_x.device)], dim=1)
-            
-        if k_y < self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"]:
-            pad_size = self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"] - k_y
-            score_y = torch.cat([score_y, torch.zeros(score_y.shape[0], pad_size, device=score_y.device)], dim=1)
-
-        # predict overlap scores using diffusion net
-        overlap_score12 = self.networks['echo_match_net'].overlap_diffusion_net(x_in=score_x.unsqueeze(0), data=data_x).flatten()
-        overlap_score21 = self.networks['echo_match_net'].overlap_diffusion_net(x_in=score_y.unsqueeze(0), data=data_y).flatten()
+        overlap_score12, overlap_score21 = self._predict_overlap(data_x, data_y, feat_x_normed, feat_y_normed)
 
         gt_partiality_mask12 = data['first'].get('partiality_mask', torch.ones((evecs_x.shape[0])).long().to(self.device)).squeeze()
         gt_partiality_mask21 = data['second'].get('partiality_mask', torch.ones((evecs_y.shape[0])).long().to(self.device)).squeeze()
@@ -144,49 +154,7 @@ class Echo_Match_Model(PartialBaseModel):
 
         feat_x_normed = F.normalize(feat_x, dim=-1, p=2)
         feat_y_normed = F.normalize(feat_y, dim=-1, p=2)
-        # compute similarity and permutation matrices
-        similarity = torch.bmm(feat_x_normed, feat_y_normed.transpose(1, 2))
-        Pxy = self.networks['echo_match_net'].permutation_network(similarity).squeeze(0)
-        Pyx = self.networks['echo_match_net'].permutation_network(similarity.transpose(1, 2)).squeeze(0)
-        clean_verts_x = data_x["verts"][0]
-        clean_verts_y = data_y["verts"][0]
-
-        # get or compute distance matrices
-        if "dist" in data_x and "dist" in data_y:
-            dists_x = data_x["dist"][0]
-            dists_y = data_y["dist"][0]
-        else:
-            dists_x = torch.cdist(clean_verts_x, clean_verts_x)
-            dists_y = torch.cdist(clean_verts_y, clean_verts_y)
-
-        # get nearest neighbor indices
-        k_x = min(self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"], dists_x.shape[1])
-        k_y = min(self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"], dists_y.shape[1])
-        _, idx_x = torch.topk(dists_x, k_x, largest=False, sorted=True)
-        _, idx_y = torch.topk(dists_y, k_y, largest=False, sorted=True)
-
-        # compute overlap scores
-        matrix_x = Pxy @ Pyx
-        matrix_y = Pyx @ Pxy
-
-        score_x = matrix_x.gather(1, idx_x)
-        score_y = matrix_y.gather(1, idx_y)
-
-        score_x = score_x / score_x.max()
-        score_y = score_y / score_y.max()
-
-        # Pad scores with zeros if k is smaller than overlap_in
-        if k_x < self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"]:
-            pad_size = self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"] - k_x
-            score_x = torch.cat([score_x, torch.zeros(score_x.shape[0], pad_size, device=score_x.device)], dim=1)
-            
-        if k_y < self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"]:
-            pad_size = self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"] - k_y
-            score_y = torch.cat([score_y, torch.zeros(score_y.shape[0], pad_size, device=score_y.device)], dim=1)
-
-        # predict overlap scores using diffusion net
-        overlap_score12 = self.networks['echo_match_net'].overlap_diffusion_net(x_in=score_x.unsqueeze(0), data=data_x).flatten()
-        overlap_score21 = self.networks['echo_match_net'].overlap_diffusion_net(x_in=score_y.unsqueeze(0), data=data_y).flatten()
+        overlap_score12, overlap_score21 = self._predict_overlap(data_x, data_y, feat_x_normed, feat_y_normed)
 
         use_feat_x, use_feat_y = (feat_x, feat_y) 
 

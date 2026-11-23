@@ -10,12 +10,14 @@ set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:?Submit from the repository root with sbatch}"
 
 if [[ $# -lt 1 || $# -gt 2 ]]; then
-    echo "Usage: sbatch train_partialsmal_dino_overlap.sbatch {cache|check|predicted|predicted50|evaluate|evaluate50|gt|evaluate-gt} [PARTIALSMAL_ROOT]" >&2
+    echo "Usage: sbatch train_partialsmal_dino_overlap.sbatch MODE [PARTIALSMAL_ROOT]" >&2
+    echo "Frozen overlap modes: frozen, frozen-unmasked, evaluate-frozen, evaluate-frozen-unmasked" >&2
     exit 2
 fi
 mode=$1
 case "$mode" in
     cache|check|predicted|predicted50|evaluate|evaluate50|gt|evaluate-gt) ;;
+    frozen|frozen-unmasked|evaluate-frozen|evaluate-frozen-unmasked) ;;
     *) echo "Unknown mode: $mode" >&2; exit 2 ;;
 esac
 data_root=$(realpath -- "${2:-../data/PARTIALSMAL}")
@@ -41,7 +43,7 @@ import yaml
 
 mode = sys.argv[1]
 root, override, train_config, test_config = map(Path, sys.argv[2:])
-training = mode not in ("evaluate", "evaluate50", "evaluate-gt")
+training = not mode.startswith("evaluate")
 split, count = ("train", 304) if training else ("test", 100)
 directory = root / split
 maps = sorted((directory / "maps").glob("*.vts"))
@@ -74,6 +76,9 @@ elif mode == "evaluate50":
     checkpoints.update(epoch10=curve / "3040.pth", epoch20=curve / "6080.pth", epoch50=curve / "final.pth")
 elif mode == "evaluate-gt":
     checkpoints = {"gt": experiments / f"{train_config.stem}_official_gt/models/final.pth"}
+elif mode.startswith("evaluate-frozen"):
+    variant = mode.removeprefix("evaluate-")
+    checkpoints[variant] = experiments / f"{train_config.stem}_official_{variant}/models/final.pth"
 for name, checkpoint in checkpoints.items():
     if not checkpoint.is_file():
         sys.exit(f"Missing {name} checkpoint: {checkpoint}")
@@ -86,6 +91,12 @@ if training:
     elif mode == "predicted50":
         options["path"] = {"resume_state": str(published.resolve()), "resume": False}
         options["train"] = {"total_epochs": 50}
+    elif mode in ("frozen", "frozen-unmasked"):
+        options["type"] = "Echo_Match_Frozen_Overlap_Model"
+        options["path"] = {"overlap_teacher_checkpoint": str(published.resolve())}
+        options["train"] = {"losses": {"echo_match_loss": {"w_acc": 0}}}
+        if mode == "frozen-unmasked":
+            options["prune_strategy"] = "none"
     override.write_text(yaml.safe_dump(options))
 else:
     for name, checkpoint in checkpoints.items():
@@ -94,6 +105,12 @@ else:
             "datasets": {"test_dataset": {"data_root": str(directory)}},
             "val": {"predicted_overlap": True},
         }
+        if name.startswith("frozen"):
+            options["type"] = "Echo_Match_Frozen_Overlap_Model"
+            options["path"]["overlap_teacher_checkpoint"] = str(published.resolve())
+        elif mode.startswith("evaluate-frozen"):
+            # Keep the published reference distinct from existing experiment outputs.
+            name = f"{mode.removeprefix('evaluate-')}_published"
         label = f"curve50_{name}" if mode == "evaluate50" else name
         (override.parent / f"official_test_{label}.yaml").write_text(yaml.safe_dump(options))
 PY
@@ -134,6 +151,13 @@ PY
     evaluate-gt)
         echo "Evaluate checkpoint: gt"
         python -u test.py --opt "$test_config" --override "$temporary_dir/official_test_gt.yaml"
+        ;;
+    evaluate-frozen|evaluate-frozen-unmasked)
+        variant=${mode#evaluate-}
+        echo "Evaluate checkpoint: published"
+        python -u test.py --opt "$test_config" --override "$temporary_dir/official_test_${variant}_published.yaml"
+        echo "Evaluate checkpoint: $variant"
+        python -u test.py --opt "$test_config" --override "$temporary_dir/official_test_$variant.yaml"
         ;;
     *)
         python -u train.py --opt "$train_config" --override "$override"
