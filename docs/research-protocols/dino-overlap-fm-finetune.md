@@ -135,3 +135,26 @@ The evaluation writes the three checkpoint results under separate
 `_official_test_gt_curve50_*` directories. Compare all checkpoints at epochs
 10, 20, and 50 against their predicted-overlap counterparts. The published
 reference is already recorded by `evaluate50`.
+
+#### Motivation and submission on 23 November 2026
+
+The 50-epoch predicted run lowered `point` error from 0.0493 to 0.0460.
+It combined extra optimization with a change to the FM training weights.
+The matched GT control asks how much the original training rule improves
+the same checkpoint over the same budget. A similar gain with GT would
+show that extra fine-tuning under the original rule can account for the
+observed improvement. A lower error with predicted weighting would
+support a contribution from that training route under the matched setup.
+
+Both control jobs were submitted from the detached
+`DeepShapeMatchingKit-gt50` checkout at [`4807169`](https://github.com/angelhiguera/DeepShapeMatchingKit/commit/48071698d2deb8c6387f9079da01b841fa7d4c8f).
+
+| Job | Mode | Output log |
+| --- | --- | --- |
+| `29299028` | `gt50`, 50 epochs on official train | `echo-dino-gt50-29299028.out` |
+| `29299029` | `evaluate-gt50`, official test after successful training | `echo-dino-evaluate-gt50-29299029.out` |
+
+Results are pending. Compare against predicted training job `29282882`
+and evaluation job `29282883` at the fixed epochs 10, 20 and 50. Use
+`point` as the primary descriptor metric and record both FM errors and
+overlap quality on the same 100 official test maps. [Predicted-run results](../research-log/2026-11-22-day-02-echomatch-overlap-finetuning.md#follow-up-50-epochs-from-the-published-checkpoint)
