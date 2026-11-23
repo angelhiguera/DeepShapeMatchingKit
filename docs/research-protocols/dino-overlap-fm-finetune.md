@@ -106,3 +106,32 @@ printf 'Training: %s\nEvaluation: %s\n' "$train_job" "$eval_job"
 The evaluation prints blocks for the published checkpoint and epochs 10,
 20 and 50 of the new run. Each has its own results directory. Report the
 complete comparison on official test after training.
+
+### Run the matched 50-epoch GT control
+
+`gt50` uses the same published checkpoint, fresh optimizer and scheduler,
+seed, budget, losses, and 304 official training maps as `predicted50`. The
+training difference is the FM weighting on Y. The GT control uses the
+original `f2_only` strategy. Both runs use the same test configuration to
+measure `point`, `fmap`, `fmap_predicted`, and overlap metrics.
+
+From the repository root on Marvin:
+
+```bash
+scratch=/lustre/scratch/data/s23ahigu_hpc-echomatch
+export TORCH_HOME="$scratch/torch-cache"
+train_job=$(sbatch --parsable --account=ag_ifi_blum --time=06:00:00 \
+  --job-name=echo-dino-gt50 --output="$scratch/echo-dino-gt50-%j.out" \
+  train_partialsmal_dino_overlap.sbatch gt50) &&
+eval_job=$(sbatch --parsable --account=ag_ifi_blum --time=00:20:00 \
+  --dependency="afterok:${train_job%%;*}" \
+  --job-name=echo-dino-evaluate-gt50 --output="$scratch/echo-dino-evaluate-gt50-%j.out" \
+  train_partialsmal_dino_overlap.sbatch evaluate-gt50) &&
+printf 'Training: %s\nEvaluation: %s\n' "$train_job" "$eval_job"
+```
+
+The control saves weights under `echo_match_psmal_dino_overlap_finetune_official_gt50`.
+The evaluation writes the three checkpoint results under separate
+`_official_test_gt_curve50_*` directories. Compare all checkpoints at epochs
+10, 20, and 50 against their predicted-overlap counterparts. The published
+reference is already recorded by `evaluate50`.

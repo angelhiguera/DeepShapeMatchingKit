@@ -10,12 +10,12 @@ set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:?Submit from the repository root with sbatch}"
 
 if [[ $# -lt 1 || $# -gt 2 ]]; then
-    echo "Usage: sbatch train_partialsmal_dino_overlap.sbatch {cache|check|predicted|predicted50|evaluate|evaluate50|gt|evaluate-gt} [PARTIALSMAL_ROOT]" >&2
+    echo "Usage: sbatch train_partialsmal_dino_overlap.sbatch {cache|check|predicted|predicted50|evaluate|evaluate50|gt|gt50|evaluate-gt|evaluate-gt50} [PARTIALSMAL_ROOT]" >&2
     exit 2
 fi
 mode=$1
 case "$mode" in
-    cache|check|predicted|predicted50|evaluate|evaluate50|gt|evaluate-gt) ;;
+    cache|check|predicted|predicted50|evaluate|evaluate50|gt|gt50|evaluate-gt|evaluate-gt50) ;;
     *) echo "Unknown mode: $mode" >&2; exit 2 ;;
 esac
 data_root=$(realpath -- "${2:-../data/PARTIALSMAL}")
@@ -41,7 +41,7 @@ import yaml
 
 mode = sys.argv[1]
 root, override, train_config, test_config = map(Path, sys.argv[2:])
-training = mode not in ("evaluate", "evaluate50", "evaluate-gt")
+training = not mode.startswith("evaluate")
 split, count = ("train", 304) if training else ("test", 100)
 directory = root / split
 maps = sorted((directory / "maps").glob("*.vts"))
@@ -66,12 +66,14 @@ settings = yaml.safe_load(config.read_text())
 published = Path(settings["path"]["resume_state"])
 experiments = Path("experiments/echo_match")
 pilot = experiments / f"{train_config.stem}_official_predicted/models"
-curve = experiments / f"{train_config.stem}_official_predicted50/models"
 checkpoints = {"published": published}
 if mode == "evaluate":
     checkpoints["predicted"] = pilot / "final.pth"
-elif mode == "evaluate50":
-    checkpoints.update(epoch10=curve / "3040.pth", epoch20=curve / "6080.pth", epoch50=curve / "final.pth")
+elif mode in ("evaluate50", "evaluate-gt50"):
+    curve_mode = "predicted50" if mode == "evaluate50" else "gt50"
+    curve = experiments / f"{train_config.stem}_official_{curve_mode}/models"
+    snapshots = {"epoch10": curve / "3040.pth", "epoch20": curve / "6080.pth", "epoch50": curve / "final.pth"}
+    checkpoints = (checkpoints | snapshots) if mode == "evaluate50" else snapshots
 elif mode == "evaluate-gt":
     checkpoints = {"gt": experiments / f"{train_config.stem}_official_gt/models/final.pth"}
 for name, checkpoint in checkpoints.items():
@@ -81,9 +83,9 @@ for name, checkpoint in checkpoints.items():
 
 if training:
     options = {"datasets": {"train_dataset": {"data_root": str(directory)}}}
-    if mode == "gt":
+    if mode in ("gt", "gt50"):
         options["prune_strategy"] = "f2_only"
-    elif mode == "predicted50":
+    if mode in ("predicted50", "gt50"):
         options["path"] = {"resume_state": str(published.resolve()), "resume": False}
         options["train"] = {"total_epochs": 50}
     override.write_text(yaml.safe_dump(options))
@@ -94,7 +96,8 @@ else:
             "datasets": {"test_dataset": {"data_root": str(directory)}},
             "val": {"predicted_overlap": True},
         }
-        label = f"curve50_{name}" if mode == "evaluate50" else name
+        namespace = {"evaluate50": "curve50_", "evaluate-gt50": "gt_curve50_"}.get(mode, "")
+        label = f"{namespace}{name}"
         (override.parent / f"official_test_{label}.yaml").write_text(yaml.safe_dump(options))
 PY
 
@@ -129,6 +132,12 @@ PY
         for name in published epoch10 epoch20 epoch50; do
             echo "Evaluate checkpoint: $name"
             python -u test.py --opt "$test_config" --override "$temporary_dir/official_test_curve50_$name.yaml"
+        done
+        ;;
+    evaluate-gt50)
+        for name in epoch10 epoch20 epoch50; do
+            echo "Evaluate GT checkpoint: $name"
+            python -u test.py --opt "$test_config" --override "$temporary_dir/official_test_gt_curve50_$name.yaml"
         done
         ;;
     evaluate-gt)
