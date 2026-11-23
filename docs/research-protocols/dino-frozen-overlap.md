@@ -1,5 +1,26 @@
 # DINO fine-tuning with a frozen overlap predictor
 
+## Experiment at a glance
+
+### Motivation — what are we trying to learn?
+
+The joint fine-tuning experiment showed that using predicted overlap in the FM solver can accompany improvements in shape correspondence. But does that require the **overlap predictor itself to keep learning**? Perhaps the published checkpoint already supplies a useful overlap signal, and the matching descriptors only need to learn how to use it. This experiment asks: **Can a fixed overlap predictor guide better functional-map correspondences, and does weighting by its predictions help beyond ordinary fine-tuning?**
+
+### What we tested
+
+We separated the model into a **frozen teacher** (the published overlap predictor, including its feature extractor) and a **trainable matching descriptor extractor**. The teacher's soft overlap probabilities weight Y's descriptors in the FM solver, but the teacher never receives gradients; the student is optimized with FM and InfoNCE, without overlap BCE. To isolate the effect of the weighting, we compared against a **matched frozen-unmasked control**, which uses the same teacher, initialization, losses, and 10-epoch budget but does **not** weight the descriptors during FM training. We also followed the weighted run to **50 epochs**, using the official PARTIALSMAL train/test splits.
+
+### What we found
+
+At **10 epochs**, weighted and unweighted fine-tuning both improved direct descriptor matching over the published checkpoint: `point` decreased from **0.0493** to **0.0468** with weighting and **0.0469** without it. That difference is negligible at the reported precision. The clearer effect was on the FM solver: weighting reduced `fmap` error from **0.0800 to 0.0767**, and `fmap_predicted` error from **0.0785 to 0.0767**, compared with the matched unweighted control. Continuing the weighted run to **50 epochs** brought `fmap_predicted` to **0.0757**, while `point` remained near **0.0466–0.0468**. As intended, mask mIoU stayed fixed at **84.75%**.
+
+**Takeaway:** A frozen overlap predictor can provide useful supervision for **FM-compatible descriptor learning**. In this matched 10-epoch comparison, weighting helps FM results more clearly than direct nearest-neighbor descriptor matching. The conclusion is limited to the tested predictor, dataset, and single-seed setup; it does not establish that freezing is better than joint training.
+
+The protocol, official-test results, and Marvin commands are documented below. For the broader comparison with joint and GT-mask fine-tuning, see the [Day 02 research log](../research-log/2026-11-22-day-02-echomatch-overlap-finetuning.md).
+
+---
+
+
 **Question.** Can a fixed set of predicted overlap probabilities help
 EchoMatch learn descriptors for correspondence? The earlier joint
 fine-tuning let the functional-map (FM) loss reach the overlap predictor.
