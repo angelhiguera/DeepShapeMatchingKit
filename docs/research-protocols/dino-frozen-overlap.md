@@ -6,6 +6,15 @@ fine-tuning let the functional-map (FM) loss reach the overlap predictor.
 This experiment supplies the overlap probabilities from the published
 model throughout fine-tuning.
 
+The joint run improved direct descriptor matching while overall mask IoU
+changed little. It leaves open whether the model needs to adapt its
+overlap predictions to learn better correspondences. A fixed predictor
+tests whether the probabilities we already have can guide descriptor
+learning. Freezing the overlap head alone would still let its inputs
+change as the matching extractor learns. A separate frozen copy of the
+first DiffusionNet keeps those inputs, and therefore the overlap
+predictions, fixed for the same pair. [Joint fine-tuning results](https://github.com/angelhiguera/DeepShapeMatchingKit/blob/3899d24f64b1911c072ca1f30c75524469636d29/docs/research-log/2026-11-22-day-02-echomatch-overlap-finetuning.md)
+
 ## Model and supervision
 
 - The **frozen predictor** uses the published checkpoint's first
@@ -38,18 +47,36 @@ The reported mIoU and balanced accuracy belong to the fixed predictor.
 They should reproduce the published values when the inputs and environment
 match.
 
-The published checkpoint gives the initial reference. The matched unmasked
-comparison isolates the contribution of the frozen probabilities during
-training. Comparisons against the joint run also change the predictor's
-status and BCE supervision. Those comparisons cannot isolate their effects.
-An improved overlap predictor can be tested later with the same matching
-protocol, reporting both mask quality and correspondence error.
+If `point` improves against the published checkpoint, descriptor
+learning was possible with a fixed predictor in this run. A gain only
+in `fmap_predicted` would indicate a benefit specific to the masked
+solver on this evaluation. The matched `frozen-unmasked` comparison
+isolates the contribution of the frozen probabilities in the training
+solver. Comparing directly with the joint run also changes BCE and
+whether the predictor learns. If the matched comparison supports using
+fixed probabilities, repeat it with a stronger overlap predictor under
+the same descriptor-training protocol. Report both mask quality and
+matching error.
 
 The PyTorch smoke check used the published weights and synthetic operators.
 The frozen model reproduced the initial overlap probabilities and matches.
 After a student optimizer step, the overlap probabilities stayed identical
 and the student extractor changed. The FM loss alone gave finite nonzero
-gradients to the student. Real-data training and evaluation are pending.
+gradients to the student.
+
+## 23 November 2026 submission
+
+Both jobs were submitted from the detached `DeepShapeMatchingKit-frozen`
+checkout at [`e17a99c`](https://github.com/angelhiguera/DeepShapeMatchingKit/commit/e17a99cbdd3687c6f88fb979dcc7da6a2285d64f).
+
+| Job | Mode | Output log |
+| --- | --- | --- |
+| `29299030` | `frozen`, training on the official train split | `echo-dino-frozen-29299030.out` |
+| `29299031` | `evaluate-frozen`, official test after successful training | `echo-dino-evaluate-frozen-29299031.out` |
+
+The first readout will compare the published and 10-epoch frozen model
+on `point`, `fmap`, `fmap_predicted`, mIoU and balanced accuracy.
+Results are pending. The paired unmasked follow-up remains optional.
 
 ## Marvin launcher
 
