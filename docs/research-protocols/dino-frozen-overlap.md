@@ -74,9 +74,24 @@ checkout at [`e17a99c`](https://github.com/angelhiguera/DeepShapeMatchingKit/com
 | `29299030` | `frozen`, training on the official train split | `echo-dino-frozen-29299030.out` |
 | `29299031` | `evaluate-frozen`, official test after successful training | `echo-dino-evaluate-frozen-29299031.out` |
 
-The first readout will compare the published and 10-epoch frozen model
-on `point`, `fmap`, `fmap_predicted`, mIoU and balanced accuracy.
-Results are pending. The paired unmasked follow-up remains optional.
+### Official test results
+
+| Checkpoint | `point` ↓ | `fmap` ↓ | `fmap_predicted` ↓ | Mask mIoU ↑ | Balanced accuracy ↑ |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Published | 0.0493 | 0.0771 | 0.0757 | 84.75% | 92.75% |
+| Frozen, epoch 10 | 0.0468 | 0.0767 | 0.0767 | 84.75% | 92.75% |
+
+Direct descriptor matching improves by 5.1% relative to the published
+checkpoint on the 100 official test maps. This shows that the extractor
+can improve while the overlap predictor remains fixed. Both mask metrics
+reproduce the published values at log precision.
+
+The masked FM error increases from 0.0757 to 0.0767. At epoch 10 it rounds
+to the same value as unmasked FM. The fixed predictor can support training
+while its inference-time weighting gives a different result. To attribute
+the `point` gain to using those fixed probabilities in the training solver,
+compare against the matched `frozen-unmasked` run. This is still pending.
+[Comparison with the other fine-tuning runs](https://github.com/angelhiguera/DeepShapeMatchingKit/blob/experiment/dino-overlap-fm-finetune/docs/research-log/2026-11-22-day-02-echomatch-overlap-finetuning.md#matched-gt-and-frozen-predictor-results-on-23-november)
 
 ## Marvin launcher
 
