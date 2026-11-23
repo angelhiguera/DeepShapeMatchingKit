@@ -80,42 +80,59 @@ that gain comes from predicted weighting and how much comes from the extra
 training remains open. The recorded results are from one fine-tuning run
 and aggregate test logs.
 
-## Proposed next experiments
+## Follow-up: 50 epochs from the published checkpoint
 
-### 1. Extend predicted-overlap fine-tuning to 50 epochs total
+**Question.** Does the descriptor-matching gain persist or grow with more
+fine-tuning?
 
-**Question.** Does the descriptor-matching gain persist or grow across a
-longer adjustment?
+Training job `29282882` ran 50 epochs (15,200 configured batches) in
+41 min 05 s. It started at epoch 0 and iteration 0 with the published DINO
+weights. The logged SHA-256 matches the Day 01 checkpoint digest
+`acbe75fd2091980fb9628f4458b118287af5639e11f05023c1af42a69849fe59`.
+Evaluation job `29282883` completed in 2 min 39 s. Both reported exit code
+`0:0`. The reported results are from
+`echo-dino-evaluate50-29282883.out`. [Launcher revision](https://github.com/angelhiguera/DeepShapeMatchingKit/commit/8d0972e59d6d725aa202f40f278fae2dd048833a) · [Marvin commands](../research-protocols/dino-overlap-fm-finetune.md#run-50-epochs-from-the-published-checkpoint)
 
-Fix the endpoint at **50 epochs** (15,200 batches) in one new run. Use
-the same published initialization, losses, learning rate and data as the
-pilot. Compare the published weights and the epoch-10, epoch-20 and
-epoch-50 checkpoints from this run on the same test maps after training.
-Use `point` as the primary result and track both FM variants and mask mIoU
-as secondary readouts. Report all four measurements, including any
-deterioration. This follow-up is exploratory because it is motivated by the
-10-epoch pilot's test result.
+The three fine-tuned checkpoints come from one run, with the same losses,
+learning rate and official training split as the 10-epoch pilot. The
+endpoint and evaluation points were fixed before this run.
 
-The `predicted50` launcher loads the published DINO network weights and
-starts from epoch 1 with fresh Adam and StepLR state. The learning rate
-remains `1e-4` through epoch 50 under `StepLR(step_size=100)`. The
-`evaluate50` launcher reads `3040.pth`, `6080.pth` and `final.pth`
-from the long run alongside the published checkpoint.
-[Marvin commands](../research-protocols/dino-overlap-fm-finetune.md#run-50-epochs-from-the-published-checkpoint)
+| Checkpoint | `point` error ↓ | `fmap` error ↓ | `fmap_predicted` error ↓ | Mask mIoU ↑ | Balanced accuracy ↑ |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Published | 0.0493 | 0.0771 | 0.0757 | 84.75% | 92.75% |
+| Epoch 10 | 0.0463 | 0.0758 | 0.0746 | 84.78% | 92.83% |
+| Epoch 20 | 0.0473 | 0.0770 | 0.0748 | **85.40%** | **93.03%** |
+| Epoch 50 | **0.0460** | **0.0750** | **0.0738** | 84.89% | 92.91% |
 
-### 2. Optionally match additional training with GT masks
+Epoch 10 matches the pilot on all five reported metrics at log precision.
+Epoch 50 has the lowest error among the measured checkpoints for each
+matching method. For `point`, the relative reduction is **6.7% versus the
+published checkpoint** and **0.65% versus epoch 10**. Most of the observed
+descriptor gain therefore appears by epoch 10. All three matching errors
+rise at epoch 20 relative to epoch 10 before improving at epoch 50.
+
+Mask IoU and balanced accuracy peak at epoch 20, where the matching errors
+are worse than at epochs 10 and 50. Overall mask agreement and
+correspondence quality move differently on this trajectory. The
+improvements are descriptive. This is one exploratory trajectory motivated
+by the pilot's test result, and the logs provide rounded aggregates.
+The contribution of predicted weighting remains entangled with the
+effect of extra training.
+
+## Open experiments
+
+### Match additional training with GT masks, if attribution is needed
 
 **Question.** What portion of the gain is specific to letting the FM solver
 use predicted overlap, given the same number of extra updates?
 
 Another 10 epochs with the original GT weighting would directly match the
-completed pilot. If the 50-epoch result drives the next conclusion, compare
-against a GT run at that same budget. Start from the published checkpoint
-in both conditions. This control is most valuable if we want to attribute
-the gain to predicted weighting. It can wait while we establish whether the
-predicted-mask trajectory is worth pursuing.
+completed pilot. To interpret the 50-epoch trajectory, run the control for
+50 epochs from the published checkpoint and score the same milestones.
+Use this control when the goal is to attribute the gain to predicted
+weighting.
 
-### 3. Test overlap-aware cross-shape InfoNCE separately
+### Test overlap-aware cross-shape InfoNCE separately
 
 **Question.** Do descriptors improve when vertices likely outside the
 overlap have less influence as candidate correspondences in cross-shape
