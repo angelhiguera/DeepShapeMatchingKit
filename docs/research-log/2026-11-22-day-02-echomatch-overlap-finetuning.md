@@ -143,15 +143,15 @@ probabilities for each checkpoint. [Fixed evaluation order](https://github.com/a
 The original GT training rule is sufficient to improve `point` over
 the published 0.0493. At epochs 10 and 20 the GT control has lower
 `point` and `fmap_predicted` error. At epoch 50 the predicted run has
-slightly lower error on all three matching readouts. Across the measured
-milestones, the lowest `point` error is GT at epoch 10 (0.0456),
+slightly lower error on all three matching readouts. Through epoch 50,
+the lowest `point` error is GT at epoch 10 (0.0456),
 and the lowest masked FM error is predicted at epoch 50 (0.0738 versus
 GT's 0.0739 at epoch 10). This supports a benefit from fine-tuning and
 shows a difference in the trajectories under the two training rules.
 It gives limited evidence for a general advantage of predicted weights.
 The comparisons use one seed and rounded test aggregates.
 
-### Frozen predictor at 10 epochs
+### Frozen predictor: matched control and training duration
 
 The frozen run trains the matching extractor with FM and InfoNCE and uses
 the fixed published predictor for the FM weighting. The official test
@@ -160,10 +160,62 @@ log for `29299031` shows `point` improving from **0.0493 to 0.0468**
 FM moves from 0.0757 to 0.0767. For the fine-tuned extractor, the
 two FM errors round to the same value. Mask mIoU remains 84.75% and
 balanced accuracy remains 92.75%, as expected for the fixed predictor.
-The result shows that matching can improve with overlap predictions
-held fixed. The optional `frozen-unmasked` run is the matched comparison
-needed to isolate whether applying those fixed probabilities helped
-the extractor learn. [Frozen experiment protocol](https://github.com/angelhiguera/DeepShapeMatchingKit/blob/experiment/dino-frozen-overlap/docs/research-protocols/dino-frozen-overlap.md)
+The matched `frozen-unmasked` run (training `29315145`, evaluation
+`29315146`) used the same fixed predictor and FM/InfoNCE losses. At
+10 epochs, training with its weights gave nearly the same `point` as
+training without them (0.0468 versus 0.0469), and lower unmasked FM
+error (0.0767 versus 0.0800) and masked FM error (0.0767 versus 0.0785).
+
+A fresh `frozen` run to 50 epochs (training `29316280`, evaluation
+`29317866`) kept `point` in a narrow range of 0.0466–0.0468.
+From epochs 10 to 50, unmasked FM error fell from 0.0767 to 0.0759,
+and masked FM error fell from 0.0767 to 0.0757. The mIoU stayed at
+84.75% throughout. The fixed weights were more useful for the FM readouts
+than for direct matching in these comparisons. [Full frozen results](https://github.com/angelhiguera/DeepShapeMatchingKit/blob/348c4e1ca8c5ea981012e417e8df08ebf7249354/docs/research-protocols/dino-frozen-overlap.md#official-test-results)
+
+### Joint predicted weighting through 100 epochs
+
+Job `29315653` was submitted as a fresh 100-epoch fine-tune from the
+published DINO weights, with predicted weighting in the training solver.
+It completed in 1 h 22 min 24 s. Job `29318393` evaluated `15200.pth`
+and `final.pth` from that same run on the official test. Source logs:
+`echo-dino-predicted100-29315653.out` and
+`echo-dino-compare-50-100-29318393.out`.
+
+| Epoch | `point` ↓ | `fmap` ↓ | `fmap_predicted` ↓ | Mask mIoU ↑ | Balanced accuracy ↑ |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 50 | 0.0460 | 0.0750 | 0.0738 | 84.89% | 92.91% |
+| 100 | 0.0460 | **0.0737** | **0.0731** | **85.58%** | **93.18%** |
+
+The epoch-50 snapshot reproduces the earlier 50-epoch run at log
+precision. The next 50 epochs improve unmasked and masked FM by 1.7%
+and 0.9% relative to epoch 50, and increase mIoU by 0.69 percentage
+points. Direct descriptor matching stays at 0.0460 at log precision.
+The additional benefit of applying the mask at inference shrinks from
+0.0012 to 0.0006 while both FM errors improve. The 100-epoch comparison
+describes the joint run's trajectory. The GT control covers up to 50
+epochs.
+
+### Conclusions across the fine-tuning experiments
+
+Fine-tuning from the published DINO checkpoint improves direct matching
+under the original GT rule and under predicted weighting. At matched
+budgets, the lead in `point` changes with the checkpoint. With the
+predictor fixed, the matched weighting comparison shows a clearer
+benefit for FM than for direct matching. Longer training continued to
+improve FM in both the frozen and joint runs, with little additional
+change in `point`. The evidence supports a modest FM benefit under
+the tested fine-tuning setup. An advantage for learning direct matching
+descriptors through predicted weighting remains uncertain. These results
+use one seed and rounded official-test aggregates.
+
+## Experiment branches and status
+
+| Branch | Scope |
+| --- | --- |
+| `experiment/dino-overlap-fm-finetune` | Joint predicted weighting up to 100 epochs and the matched GT control up to 50. The planned evaluations are recorded above. |
+| `experiment/dino-frozen-overlap` | Fixed-teacher weighting, the matched `frozen-unmasked` control at 10 epochs, and the weighted trajectory up to 50. [Protocol](https://github.com/angelhiguera/DeepShapeMatchingKit/blob/348c4e1ca8c5ea981012e417e8df08ebf7249354/docs/research-protocols/dino-frozen-overlap.md) |
+| `experiment/predicted-overlap-fmap` | Earlier frozen-checkpoint inference, per-pair and vertex diagnostics, and the viewer. [Experiment history](https://github.com/angelhiguera/DeepShapeMatchingKit/blob/4816bdd944632dd6dea4836e3d0268d6e21606c3/docs/PREDICTED_OVERLAP_HISTORY.md) |
 
 ## Open experiments
 
@@ -181,3 +233,10 @@ probabilities. This isolates the effect of changing the candidate weights
 on descriptor learning. The within-shape InfoNCE term stays as defined
 in the baseline. Set the candidate-weight rule before the test comparison.
 Use direct `point` matching as the primary metric.
+
+### Investigate the overlap head's intermediate descriptors
+
+Reusing the overlap head's internal representations as inputs to an FM
+solver is a separate, deferred idea. It needs a defined feature layer
+and a matched descriptor comparison before implementation. This idea
+and overlap-aware InfoNCE have no implementation branch as of this entry.
