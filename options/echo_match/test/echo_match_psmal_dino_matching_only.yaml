@@ -4,7 +4,7 @@ num_gpu: auto
 manual_seed: 1234
 
 path:
-  resume_state: experiments/echo_match/echo_match_psmal_dino_matching_only/models/best.pth
+  resume_state: experiments/echo_match/echo_match_psmal_dino_matching_only/models/60000.pth
   resume: false
   require_checkpoint: true
 

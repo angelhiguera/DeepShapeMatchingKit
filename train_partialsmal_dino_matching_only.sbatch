@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=echo-dino-matching-only
-#SBATCH --partition=mlgpu_medium
+#SBATCH --partition=mlgpu_short
 #SBATCH --gres=gpu:a40:1
-#SBATCH --time=18:00:00
+#SBATCH --time=08:00:00
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 
@@ -56,7 +56,7 @@ if not training:
     if explicit_checkpoint:
         Path(sys.argv[3]).write_text(yaml.safe_dump({"path": {"resume_state": str(checkpoint)}}))
 
-splits = {"train_dataset": 304, "test_dataset": 100} if training else {"test_dataset": 100}
+splits = {"train_dataset": 304} if training else {"test_dataset": 100}
 for name, expected in splits.items():
     root = Path(config["datasets"][name]["data_root"]).resolve()
     maps = sorted((root / "maps").glob("*.vts"))

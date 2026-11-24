@@ -26,22 +26,17 @@ training budget, and selection protocol.
   unmasked FM (`fmap`). Use the dataset geodesics and pool errors over all
   annotated correspondences. Matching AUC integrates the direct-matching
   PCK curve on the existing 40-point grid from 0 to 0.25.
-- Follow the [original DINO training configuration](../../options/echo_match/train/echo_match_psmal_dino.yaml)
-  on the 304 official train maps. Use seed 1234, batch size 1, Adam at
-  `1e-3` with betas `[0.9, 0.99]`, StepLR with step size 100 and
-  gamma 0.5, and the 900-epoch cap. Preserve validation every 1,000
-  updates and the existing early stopping. The evaluator defaults to
-  `best.pth`, selected by mean geodesic error of direct point matching.
-- The upstream DINO training YAML uses the 100 official test maps for
-  validation and checkpoint selection. The dedicated evaluation reports
-  those same maps, so treat the result as descriptive and conditional on
-  that selection protocol. Compare `point` mean geodesic error and PCK
-  against corresponding PARTIALSMAL DINO results in the original
-  EchoMatch paper when the matching rule, normalization, and aggregation
-  agree. Report `fmap` mean error separately. Mask mIoU, balanced accuracy,
-  and overlap-adjusted PCK require a predictor. Training from scratch and
-  removing overlap supervision are both part of this reference when
-  comparing to the previously published weights.
+- Use seed 1234, batch size 1, Adam at `1e-3` with betas `[0.9, 0.99]`, and
+  StepLR with step size 100 and gamma 0.5. Train for **60,000 iterations**
+  and evaluate the final checkpoint, following sections A and H of the
+  paper supplement. On the public split's 304 directional train maps,
+  this takes 197 full epochs and 112 iterations in epoch 198. The supplement
+  reports 273 training pairs, so the iteration count is the common reference.
+  [EchoMatch paper and supplement](https://xieyizheng.com/media/papers/echomatch/echo_match_paper_reduced.pdf)
+- Evaluate the 100 official test maps after training. Compare `point`
+  geodesic error and PCK with the paper where the matching rule,
+  normalization, and aggregation agree. The paper uses predicted overlap
+  for its reported matching. Report `fmap` mean error separately.
   [EchoMatch, CVPR 2025](https://openaccess.thecvf.com/content/CVPR2025/html/Xie_EchoMatch_Partial-to-Partial_Shape_Matching_via_Correspondence_Reflection_CVPR_2025_paper.html)
 
 ## Verification
@@ -49,9 +44,9 @@ training budget, and selection protocol.
 On synthetic pairs with PyTorch 2.3.0 CPU, the default predictor matched
 master `c4236ff` exactly for forward results, losses, gradients, and one
 optimizer update. All six bundled EchoMatch checkpoints loaded strictly.
-The matching-only train and test pipelines completed a two-update CPU smoke
-run with cached synthetic descriptors, including checkpoint reload and PCK
-export. The official PARTIALSMAL run on Marvin is pending.
+The matching-only train and test pipelines were exercised on cached
+synthetic descriptors, including checkpoint reload and PCK export. The
+official PARTIALSMAL run on Marvin is pending.
 
 ## Commands
 
@@ -69,6 +64,9 @@ counts. It reuses the DINO and geometry caches in each split where
 available. Regenerating missing DINO features requires a compatible
 PyTorch3D renderer and a populated or reachable Torch Hub cache. DINOv2's
 Hub revision is unpinned, so record the cache version for reproducibility.
+The launcher reserves one A40 for up to eight hours in `mlgpu_short`.
+The previous warm-cache DINO run suggests roughly 2 h 45 min for 60,000
+iterations, with actual runtime depending on cache hits and GPU throughput.
 The evaluation job starts after training completes successfully.
 
 ```bash
@@ -88,6 +86,7 @@ The run directory is
 `experiments/echo_match/echo_match_psmal_dino_matching_only/`, and the
 default evaluation output directory is
 `results/echo_match/echo_match_psmal_dino_matching_only50_/`.
-The launcher verifies that the checkpoint exists and logs its SHA-256.
-An optional path after `evaluate` selects an explicit checkpoint, such as
-`final.pth` after normal completion, and uses a distinct result directory.
+The launcher evaluates `models/60000.pth` and logs its SHA-256.
+`models/final.pth` contains the same weights after a normal completion.
+An optional path after `evaluate` selects an explicit checkpoint and
+uses a distinct result directory.
