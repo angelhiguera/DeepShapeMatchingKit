@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from networks.diffusion_a_network import DiffusionNet_A
+from networks.overlap_predictor import CycleConsistencyOverlapPredictor
 from utils.fmap_util import get_mask
 from utils.registry import NETWORK_REGISTRY
 
@@ -66,31 +67,14 @@ class FasterRegularizedFMNet(nn.Module):
         Cxy = X.squeeze(-1)   
 
         return Cxy
-class Similarity(nn.Module):
-    def __init__(self, normalise_dim=-1, tau=0.2, hard=False):
-        super(Similarity, self).__init__()
-        self.dim = normalise_dim
-        self.tau = tau
-        self.hard = hard
 
-    def forward(self, log_alpha):
-        log_alpha = log_alpha / self.tau
-        alpha = torch.exp(log_alpha - (torch.logsumexp(log_alpha, dim=self.dim, keepdim=True)))
-
-        if self.hard:
-            # Straight through.
-            index = alpha.max(self.dim, keepdim=True)[1]
-            alpha_hard = torch.zeros_like(alpha, memory_format=torch.legacy_contiguous_format).scatter_(self.dim, index, 1.0)
-            ret = alpha_hard - alpha.detach() + alpha
-        else:
-            ret = alpha
-        return ret
 
 @NETWORK_REGISTRY.register()
 class Echo_Match_Net(nn.Module):
     """Compute the functional map matrix representation."""
 
-    def __init__(self, cfg, input_type='xyz', augmentation={'train': {}, 'test': {}}):
+    def __init__(self, cfg, input_type='xyz', augmentation={'train': {}, 'test': {}},
+                 overlap_predictor='cycle_consistency'):
         super().__init__()
         self.cfg = cfg
 
@@ -107,21 +91,30 @@ class Echo_Match_Net(nn.Module):
             augmentation=augmentation
         )
 
-        # learnable tau
-        learned_tau = nn.Parameter(torch.Tensor([0.10]))
-        self.permutation_network = Similarity(tau=learned_tau)
-
-        # another diffusionnet for regress overlap
-        self.overlap_diffusion_net = DiffusionNet_A(
-            in_channels=cfg["overlap"]["neighbor_size"],
-            out_channels=1,
-            hidden_channels=cfg["overlap"]["hidden_channels"],
-            n_block=cfg["overlap"]["blocks"],
-            dropout=True,
-            with_gradient_features=True,
-            with_gradient_rotations=True,
-            last_activation=nn.Sigmoid(),
-        )
+        if overlap_predictor == 'cycle_consistency':
+            self.overlap_predictor = CycleConsistencyOverlapPredictor(
+                neighbor_size=cfg['overlap']['neighbor_size'],
+                hidden_channels=cfg['overlap']['hidden_channels'],
+                blocks=cfg['overlap']['blocks'],
+            )
+        elif overlap_predictor == 'none':
+            self.overlap_predictor = None
+        else:
+            raise ValueError(f'Unknown EchoMatch overlap predictor: {overlap_predictor!r}')
 
         # regularized fmap
         self.fmreg_net = FasterRegularizedFMNet(lambda_=cfg["fmap"]["lambda_"], resolvant_gamma=cfg["fmap"]["resolvant_gamma"])
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
+                              missing_keys, unexpected_keys, error_msgs):
+        # Published EchoMatch checkpoints stored both predictor modules directly on the net.
+        # Leave duplicate or disabled-predictor keys for strict loading to reject.
+        if isinstance(self.overlap_predictor, CycleConsistencyOverlapPredictor):
+            legacy_prefixes = (prefix + 'permutation_network.', prefix + 'overlap_diffusion_net.')
+            for key in list(state_dict):
+                if key.startswith(legacy_prefixes):
+                    new_key = prefix + 'overlap_predictor.' + key[len(prefix):]
+                    if new_key not in state_dict:
+                        state_dict[new_key] = state_dict.pop(key)
+        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict,
+                                      missing_keys, unexpected_keys, error_msgs)

@@ -52,10 +52,6 @@ def plot_pck(geo_err, threshold=0.20, steps=40):
     auc = np.trapz(pcks, np.linspace(0., 1., steps))
 
     # display figure
-    fig = plt.figure()
-    ax = fig.add_subplot(1, 1, 1)
-    ax.plot(thresholds, pcks, 'r-')
-    ax.set_xlim(0., threshold)
     fig = plot_pck_multiple([geo_err], ['err'], threshold=threshold)
     return auc, fig, pcks
 

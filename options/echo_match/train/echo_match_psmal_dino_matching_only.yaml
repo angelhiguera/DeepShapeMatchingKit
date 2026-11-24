@@ -1,0 +1,78 @@
+backend: dp
+type: Echo_Match_Model
+num_gpu: auto
+manual_seed: 1234
+lambda: 1000000
+prune_strategy: f2_only
+
+path:
+  resume: false
+
+datasets:
+  train_dataset:
+    name: PartialSMALTrain
+    type: PARTIALSMALDataset
+    data_root: ../data/PARTIALSMAL/train
+    return_evecs: true
+    return_faces: true
+    num_evecs: 50
+    return_corr: true
+    return_dist: false
+    return_dino: true
+  test_dataset:
+    name: PartialSMALTest
+    type: PARTIALSMALDataset
+    data_root: ../data/PARTIALSMAL/test
+    return_evecs: true
+    return_faces: true
+    num_evecs: 50
+    return_corr: true
+    return_dist: true
+    return_dino: true
+  batch_size: 1
+  num_worker: 1
+
+networks:
+  echo_match_net:
+    type: Echo_Match_Net
+    input_type: dino
+    overlap_predictor: none
+    cfg:
+      feature_extractor:
+        in_channels: 768
+        out_channels: 128
+      fmap:
+        n_fmap: 50
+        lambda_: 100
+        resolvant_gamma: 0.5
+
+train:
+  total_epochs: 900
+  optims:
+    echo_match_net:
+      type: Adam
+      lr: 1.0e-3
+      betas: [0.9, 0.99]
+  schedulers:
+    echo_match_net:
+      type: StepLR
+      step_size: 100
+      gamma: 0.5
+  losses:
+    echo_match_loss:
+      type: EchoMatchLoss
+      w_fmap: 1
+      w_nce_self: 0.1
+      w_nce_cross: 0.1
+
+val:
+  val_freq: 1000
+  metrics:
+    geo_error:
+      type: calculate_geodesic_error
+    plot_pck:
+      type: plot_pck
+
+logger:
+  print_freq: 20
+  save_checkpoint_freq: 1000

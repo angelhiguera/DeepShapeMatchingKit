@@ -23,68 +23,30 @@ class Echo_Match_Model(PartialBaseModel):
         evals_x, evals_y = data_x['evals'][0], data_y['evals'][0]
         evecs_trans_x, evecs_trans_y = data_x['evecs_trans'][0], data_y['evecs_trans'][0]
 
+        net = self.networks['echo_match_net']
+
         # extract features
-        feat_x = self.networks['echo_match_net'].feature_extractor(data=data_x)
-        feat_y = self.networks['echo_match_net'].feature_extractor(data=data_y)
+        feat_x = net.feature_extractor(data=data_x)
+        feat_y = net.feature_extractor(data=data_y)
 
-        feat_x_normed = F.normalize(feat_x, dim=-1, p=2)
-        feat_y_normed = F.normalize(feat_y, dim=-1, p=2)
-        # compute similarity and permutation matrices
-        similarity = torch.bmm(feat_x_normed, feat_y_normed.transpose(1, 2))
-        Pxy = self.networks['echo_match_net'].permutation_network(similarity).squeeze(0)
-        Pyx = self.networks['echo_match_net'].permutation_network(similarity.transpose(1, 2)).squeeze(0)
-        clean_verts_x = data_x["verts"][0]
-        clean_verts_y = data_y["verts"][0]
-
-        # get or compute distance matrices
-        if "dist" in data_x and "dist" in data_y:
-            dists_x = data_x["dist"][0]
-            dists_y = data_y["dist"][0]
-        else:
-            dists_x = torch.cdist(clean_verts_x, clean_verts_x)
-            dists_y = torch.cdist(clean_verts_y, clean_verts_y)
-
-        # get nearest neighbor indices
-        k_x = min(self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"], dists_x.shape[1])
-        k_y = min(self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"], dists_y.shape[1])
-        _, idx_x = torch.topk(dists_x, k_x, largest=False, sorted=True)
-        _, idx_y = torch.topk(dists_y, k_y, largest=False, sorted=True)
-
-        # compute overlap scores
-        matrix_x = Pxy @ Pyx
-        matrix_y = Pyx @ Pxy
-
-        score_x = matrix_x.gather(1, idx_x)
-        score_y = matrix_y.gather(1, idx_y)
-
-        score_x = score_x / score_x.max()
-        score_y = score_y / score_y.max()
-
-        # Pad scores with zeros if k is smaller than overlap_in
-        if k_x < self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"]:
-            pad_size = self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"] - k_x
-            score_x = torch.cat([score_x, torch.zeros(score_x.shape[0], pad_size, device=score_x.device)], dim=1)
-            
-        if k_y < self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"]:
-            pad_size = self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"] - k_y
-            score_y = torch.cat([score_y, torch.zeros(score_y.shape[0], pad_size, device=score_y.device)], dim=1)
-
-        # predict overlap scores using diffusion net
-        overlap_score12 = self.networks['echo_match_net'].overlap_diffusion_net(x_in=score_x.unsqueeze(0), data=data_x).flatten()
-        overlap_score21 = self.networks['echo_match_net'].overlap_diffusion_net(x_in=score_y.unsqueeze(0), data=data_y).flatten()
+        overlap_score12, overlap_score21 = None, None
+        if net.overlap_predictor is not None:
+            overlap_score12, overlap_score21 = net.overlap_predictor(
+                data_x, data_y, F.normalize(feat_x, dim=-1, p=2), F.normalize(feat_y, dim=-1, p=2)
+            )
 
         gt_partiality_mask12 = data['first'].get('partiality_mask', torch.ones((evecs_x.shape[0])).long().to(self.device)).squeeze()
         gt_partiality_mask21 = data['second'].get('partiality_mask', torch.ones((evecs_y.shape[0])).long().to(self.device)).squeeze()
 
         if self.prune_strategy == "f2_only":
-            if self.networks['echo_match_net'].training:
+            if net.training:
                 use_feat_x = feat_x
                 use_feat_y = feat_y * gt_partiality_mask21.unsqueeze(0).unsqueeze(-1)
             else:
                 use_feat_x = feat_x
                 use_feat_y = feat_y
         elif self.prune_strategy == "both":
-            if self.networks['echo_match_net'].training:
+            if net.training:
                 use_feat_x = feat_x * gt_partiality_mask12.unsqueeze(0).unsqueeze(-1)
                 use_feat_y = feat_y * gt_partiality_mask21.unsqueeze(0).unsqueeze(-1)
             else:
@@ -97,11 +59,7 @@ class Echo_Match_Model(PartialBaseModel):
             raise ValueError(f"Unknown prune strategy: {self.prune_strategy}")
 
         # predict fmap
-        Cxy = self.networks['echo_match_net'].fmreg_net(use_feat_x, use_feat_y, evals_x, evals_y, evecs_trans_x, evecs_trans_y)
-
-        # gt partiality mask
-        gt_partiality_mask12 = data['first'].get('partiality_mask', torch.ones((evecs_x.shape[0])).long().to(self.device)).squeeze()
-        gt_partiality_mask21 = data['second'].get('partiality_mask', torch.ones((evecs_y.shape[0])).long().to(self.device)).squeeze()
+        Cxy = net.fmreg_net(use_feat_x, use_feat_y, evals_x, evals_y, evecs_trans_x, evecs_trans_y)
 
         # gt correspondence
         corr_x = data['first']['corr'][0]
@@ -120,7 +78,10 @@ class Echo_Match_Model(PartialBaseModel):
         fmap_loss, acc_loss, nce_loss = self.losses["echo_match_loss"](C_gt, Cxy, corr_x, corr_y, feat_x, feat_y,
                              overlap_score12, overlap_score21, gt_partiality_mask12, gt_partiality_mask21)
 
-        self.loss_metrics = {'fmap_loss': fmap_loss, 'acc_loss': acc_loss, 'nce_loss': nce_loss}
+        self.loss_metrics = {'fmap_loss': fmap_loss}
+        if acc_loss is not None:
+            self.loss_metrics['acc_loss'] = acc_loss
+        self.loss_metrics['nce_loss'] = nce_loss
 
     def validate_single(self, data, timer):
         # start record
@@ -135,60 +96,21 @@ class Echo_Match_Model(PartialBaseModel):
         evals_x, evals_y = data_x['evals'][0], data_y['evals'][0]
         evecs_trans_x, evecs_trans_y = data_x['evecs_trans'][0], data_y['evecs_trans'][0]
 
+        net = self.networks['echo_match_net']
+
         # extract features
-        feat_x = self.networks['echo_match_net'].feature_extractor(data=data_x)
-        feat_y = self.networks['echo_match_net'].feature_extractor(data=data_y)
+        feat_x = net.feature_extractor(data=data_x)
+        feat_y = net.feature_extractor(data=data_y)
 
         feat_x_normed = F.normalize(feat_x, dim=-1, p=2)
         feat_y_normed = F.normalize(feat_y, dim=-1, p=2)
-        # compute similarity and permutation matrices
-        similarity = torch.bmm(feat_x_normed, feat_y_normed.transpose(1, 2))
-        Pxy = self.networks['echo_match_net'].permutation_network(similarity).squeeze(0)
-        Pyx = self.networks['echo_match_net'].permutation_network(similarity.transpose(1, 2)).squeeze(0)
-        clean_verts_x = data_x["verts"][0]
-        clean_verts_y = data_y["verts"][0]
-
-        # get or compute distance matrices
-        if "dist" in data_x and "dist" in data_y:
-            dists_x = data_x["dist"][0]
-            dists_y = data_y["dist"][0]
-        else:
-            dists_x = torch.cdist(clean_verts_x, clean_verts_x)
-            dists_y = torch.cdist(clean_verts_y, clean_verts_y)
-
-        # get nearest neighbor indices
-        k_x = min(self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"], dists_x.shape[1])
-        k_y = min(self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"], dists_y.shape[1])
-        _, idx_x = torch.topk(dists_x, k_x, largest=False, sorted=True)
-        _, idx_y = torch.topk(dists_y, k_y, largest=False, sorted=True)
-
-        # compute overlap scores
-        matrix_x = Pxy @ Pyx
-        matrix_y = Pyx @ Pxy
-
-        score_x = matrix_x.gather(1, idx_x)
-        score_y = matrix_y.gather(1, idx_y)
-
-        score_x = score_x / score_x.max()
-        score_y = score_y / score_y.max()
-
-        # Pad scores with zeros if k is smaller than overlap_in
-        if k_x < self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"]:
-            pad_size = self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"] - k_x
-            score_x = torch.cat([score_x, torch.zeros(score_x.shape[0], pad_size, device=score_x.device)], dim=1)
-            
-        if k_y < self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"]:
-            pad_size = self.networks['echo_match_net'].cfg["overlap"]["neighbor_size"] - k_y
-            score_y = torch.cat([score_y, torch.zeros(score_y.shape[0], pad_size, device=score_y.device)], dim=1)
-
-        # predict overlap scores using diffusion net
-        overlap_score12 = self.networks['echo_match_net'].overlap_diffusion_net(x_in=score_x.unsqueeze(0), data=data_x).flatten()
-        overlap_score21 = self.networks['echo_match_net'].overlap_diffusion_net(x_in=score_y.unsqueeze(0), data=data_y).flatten()
-
-        use_feat_x, use_feat_y = (feat_x, feat_y) 
+        overlap_scores = {}
+        if net.overlap_predictor is not None:
+            overlap_x, overlap_y = net.overlap_predictor(data_x, data_y, feat_x_normed, feat_y_normed)
+            overlap_scores = {'overlap_score12': overlap_x, 'overlap_score21': overlap_y}
 
         # predict fmap
-        Cxy = self.networks['echo_match_net'].fmreg_net(use_feat_x, use_feat_y, evals_x, evals_y, evecs_trans_x, evecs_trans_y)
+        Cxy = net.fmreg_net(feat_x, feat_y, evals_x, evals_y, evecs_trans_x, evecs_trans_y)
         Cxy = Cxy.squeeze()
 
         # convert functional map to point-to-point map
@@ -204,7 +126,7 @@ class Echo_Match_Model(PartialBaseModel):
             if mask_y is None or mask_y.shape != feat_y.shape[:2]:
                 raise ValueError("The overlap oracle requires a GT mask of shape [1, num_vertices_y].")
             feat_y_oracle = feat_y * mask_y.unsqueeze(-1)
-            Cxy_oracle = self.networks['echo_match_net'].fmreg_net(
+            Cxy_oracle = net.fmreg_net(
                 feat_x, feat_y_oracle, evals_x, evals_y, evecs_trans_x, evecs_trans_y)
             p2p_variants['fmap_oracle'] = fmap2pointmap(Cxy_oracle.squeeze(), evecs_x, evecs_y)
 
@@ -213,7 +135,6 @@ class Echo_Match_Model(PartialBaseModel):
 
         return {
             'p2p': p2p_point,
-            'overlap_score12': overlap_score12,
-            'overlap_score21': overlap_score21,
-            'p2p_variants': p2p_variants
+            **overlap_scores,
+            'p2p_variants': p2p_variants,
         }
