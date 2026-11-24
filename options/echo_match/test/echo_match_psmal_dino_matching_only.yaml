@@ -1,0 +1,45 @@
+backend: dp
+type: Echo_Match_Model
+num_gpu: auto
+manual_seed: 1234
+
+path:
+  resume_state: experiments/echo_match/echo_match_psmal_dino_matching_only/models/60000.pth
+  resume: false
+  require_checkpoint: true
+
+datasets:
+  test_dataset:
+    name: PartialSMALTest
+    type: PARTIALSMALDataset
+    data_root: ../data/PARTIALSMAL/test
+    return_evecs: true
+    return_faces: true
+    num_evecs: 50
+    return_corr: true
+    return_dist: true
+    return_dino: true
+
+networks:
+  echo_match_net:
+    type: Echo_Match_Net
+    input_type: dino
+    overlap_predictor: none
+    cfg:
+      feature_extractor:
+        in_channels: 768
+        out_channels: 128
+      fmap:
+        n_fmap: 50
+        lambda_: 100
+        resolvant_gamma: 0.5
+
+val:
+  save_geo_errors: true
+  metrics:
+    geo_error:
+      type: calculate_geodesic_error
+    plot_pck_per_pair:
+      type: plot_pck_multiple
+    plot_pck:
+      type: plot_pck

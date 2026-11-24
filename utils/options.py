@@ -105,8 +105,11 @@ def parse(opt_path, root_path, is_train=True, override_path=None):
         opt['path']['log'] = osp.join(experiments_root, 'log')
 
         # check whether the resume_state ckpt file exists
-        if opt['path'].get('resume_state') and osp.exists(opt['path']['resume_state']):
+        checkpoint = opt['path'].get('resume_state')
+        if checkpoint and osp.isfile(checkpoint):
             print(f'Found resume_state in {opt["path"]["resume_state"]}')
+        elif opt['path'].get('require_checkpoint', False):
+            raise FileNotFoundError(f'Evaluation requires an existing path.resume_state file, got {checkpoint!r}')
         else:
             # try to find a best.ckpt from the experiments_root
             best_ckpt = osp.join(experiments_root, 'models', 'best.pth')

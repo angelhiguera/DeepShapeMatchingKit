@@ -38,8 +38,6 @@ class PartialBaseModel(BaseModel):
             # prediction results
             results = self.validate_single(data, timer)
             p2p = to_numpy(results['p2p'])
-            overlap_score12 = to_numpy(results['overlap_score12'])
-            overlap_score21 = to_numpy(results['overlap_score21'])
 
             # ground truths
             data_x, data_y = data['first'], data['second']
@@ -49,35 +47,39 @@ class PartialBaseModel(BaseModel):
                 dist_x = to_numpy(torch.cdist(data_x['verts'], data_x['verts']))
             corr_x, corr_y = to_numpy(data_x['corr']), to_numpy(data_y['corr'])
             name_x, name_y = data_x['name'][0], data_y['name'][0]
-            gt_overlap12, gt_overlap21 = to_numpy(data_x['partiality_mask']), to_numpy(data_y['partiality_mask'])
 
             # compute metrics
             geo_err = self.metrics['geo_error'](dist_x, corr_x, corr_y, p2p, return_mean=False)
-            filtered_geo_err = calculate_overlap_auc(geo_err, overlap_score21, gt_overlap21, corr_y)
-            iou1, iou2 = calculate_overlap_iou(overlap_score12, gt_overlap12), calculate_overlap_iou(overlap_score21, gt_overlap21)
-            b_acc1, b_acc2 = balanced_accuracy_score(gt_overlap12, overlap_score12 > 0.5), balanced_accuracy_score(gt_overlap21, overlap_score21 > 0.5)
-
-            # save metrics and results
             metrics_result.setdefault('p2p', []).append(p2p)
-            metrics_result.setdefault('overlap_score12', []).append(overlap_score12)
-            metrics_result.setdefault('overlap_score21', []).append(overlap_score21)
             metrics_result.setdefault('geo_errors', []).append(geo_err)
-            metrics_result.setdefault('filtered_geo_errors', []).append(filtered_geo_err)
-            metrics_result.setdefault('iou1', []).append(iou1)
-            metrics_result.setdefault('iou2', []).append(iou2)
-            metrics_result.setdefault('b_acc1', []).append(b_acc1)
-            metrics_result.setdefault('b_acc2', []).append(b_acc2)
 
             # display so far on screen
             geo_err_so_far = np.concatenate(metrics_result['geo_errors']).mean()
-            miou1_so_far = np.mean(metrics_result['iou1'])
-            miou2_so_far = np.mean(metrics_result['iou2'])
-            logger = get_root_logger()
-            logger.info(f"avg err:{geo_err_so_far:.4f} | err:{geo_err.mean():.4f} | iou1:{iou1:.4f} | iou2:{iou2:.4f} | miou1:{miou1_so_far:.4f} | miou2:{miou2_so_far:.4f} | {name_x} {name_y}")
+            message = f'avg err:{geo_err_so_far:.4f} | err:{geo_err.mean():.4f}'
+            if results.get('overlap_score12') is not None and results.get('overlap_score21') is not None:
+                overlap_score12 = to_numpy(results['overlap_score12'])
+                overlap_score21 = to_numpy(results['overlap_score21'])
+                gt_overlap12 = to_numpy(data_x['partiality_mask'])
+                gt_overlap21 = to_numpy(data_y['partiality_mask'])
+                iou1 = calculate_overlap_iou(overlap_score12, gt_overlap12)
+                iou2 = calculate_overlap_iou(overlap_score21, gt_overlap21)
+                metrics_result.setdefault('overlap_score12', []).append(overlap_score12)
+                metrics_result.setdefault('overlap_score21', []).append(overlap_score21)
+                metrics_result.setdefault('filtered_geo_errors', []).append(
+                    calculate_overlap_auc(geo_err, overlap_score21, gt_overlap21, corr_y))
+                metrics_result.setdefault('iou1', []).append(iou1)
+                metrics_result.setdefault('iou2', []).append(iou2)
+                metrics_result.setdefault('b_acc1', []).append(balanced_accuracy_score(gt_overlap12, overlap_score12 > 0.5))
+                metrics_result.setdefault('b_acc2', []).append(balanced_accuracy_score(gt_overlap21, overlap_score21 > 0.5))
+                miou1_so_far = np.mean(metrics_result['iou1'])
+                miou2_so_far = np.mean(metrics_result['iou2'])
+                message += f' | iou1:{iou1:.4f} | iou2:{iou2:.4f} | miou1:{miou1_so_far:.4f} | miou2:{miou2_so_far:.4f}'
+            get_root_logger().info(f'{message} | {name_x} {name_y}')
             # plot pck per pair
             if 'plot_pck_per_pair' in self.metrics:
-                pck_fig =self.metrics['plot_pck_per_pair']([geo_err], [f"Err: {geo_err.mean():.5f}"], threshold=0.20, steps=40)
-                plt.savefig(os.path.join(self.opt['path']['results_root'],'pcks',  f'{name_x}-{name_y}.jpg'))
+                pair_pck_fig = self.metrics['plot_pck_per_pair']([geo_err], [f'Err: {geo_err.mean():.5f}'], threshold=0.20, steps=40)
+                pair_pck_fig.savefig(os.path.join(self.opt['path']['results_root'], 'pcks', f'{name_x}-{name_y}.jpg'))
+                plt.close(pair_pck_fig)
             # p2p variants
             if 'p2p_variants' in results.keys():
                 for variant_name, variant_p2p in results['p2p_variants'].items():
@@ -87,57 +89,66 @@ class PartialBaseModel(BaseModel):
         # entire dataset metrics
         all_geo_errors = np.concatenate(metrics_result['geo_errors'])
         avg_geo_error = all_geo_errors.mean()
-        miou1 = np.mean(metrics_result['iou1'])
-        miou2 = np.mean(metrics_result['iou2'])
-        b_acc1 = np.mean(metrics_result['b_acc1'])
-        b_acc2 = np.mean(metrics_result['b_acc2'])
         for variant_name, variant_p2p in variant_metrics_result.items():
             variant_all_geo_errors = np.concatenate(variant_p2p)
             variant_avg_geo_error = variant_all_geo_errors.mean()
             variant_metrics_result[variant_name] = variant_avg_geo_error
         auc, pck_fig, pcks = self.metrics['plot_pck'](all_geo_errors, threshold=self.opt['val'].get('auc', 0.25))
-        auc_all, pck_fig_all, pcks_all = plot_pck_p2p(np.concatenate(metrics_result['filtered_geo_errors']), threshold=1, steps=100)
-        if self.opt['path'].get('results_root', None) is not None:
-            write_geo_error_to_file(np.concatenate(metrics_result['filtered_geo_errors']), os.path.join(self.opt['path']['results_root'], 'tikz_plot.txt'))
-        iou_fig = self.metrics['plot_iou_curve'](metrics_result['iou2'])
+        overlap_metrics = {}
+        if 'filtered_geo_errors' in metrics_result:
+            filtered_geo_errors = np.concatenate(metrics_result['filtered_geo_errors'])
+            auc_all, pck_fig_all, pcks_all = plot_pck_p2p(filtered_geo_errors, threshold=1, steps=100)
+            results_root = self.opt['path'].get('results_root')
+            if results_root is not None:
+                write_geo_error_to_file(filtered_geo_errors, os.path.join(results_root, 'tikz_plot.txt'))
+            iou_fig = self.metrics['plot_iou_curve'](metrics_result['iou2'])
+            overlap_metrics = {
+                'miou1': np.mean(metrics_result['iou1']),
+                'miou2': np.mean(metrics_result['iou2']),
+                'b_acc1': np.mean(metrics_result['b_acc1']),
+                'b_acc2': np.mean(metrics_result['b_acc2']),
+                'auc_all': auc_all,
+            }
 
         # logging
         if tb_logger is not None: # train, tensorboard logging
             step = self.curr_iter // self.opt['val']['val_freq']
             tb_logger.add_figure('pck', pck_fig, global_step=step)
-            tb_logger.add_figure('pck_all', pck_fig_all, global_step=step)
-            tb_logger.add_figure('iou_curve', iou_fig, global_step=step)
             tb_logger.add_scalar('val auc', auc, global_step=step)
-            tb_logger.add_scalar('val auc_all', auc_all, global_step=step)
             tb_logger.add_scalar('val avg error', avg_geo_error, global_step=step)
-            tb_logger.add_scalar('val miou1', miou1, global_step=step)
-            tb_logger.add_scalar('val miou2', miou2, global_step=step)
-            tb_logger.add_scalar('val b_acc1', b_acc1, global_step=step)
-            tb_logger.add_scalar('val b_acc2', b_acc2, global_step=step)
+            if overlap_metrics:
+                tb_logger.add_figure('pck_all', pck_fig_all, global_step=step)
+                tb_logger.add_figure('iou_curve', iou_fig, global_step=step)
+                for name, value in overlap_metrics.items():
+                    tb_logger.add_scalar(f'val {name}', value, global_step=step)
             for variant_name, variant_avg_geo_error in variant_metrics_result.items():
                 tb_logger.add_scalar(f'val {variant_name} avg error', variant_avg_geo_error, global_step=step)
         else: # test, save to disk
             wandb.log({
                 'test avg error': avg_geo_error,
-                'test miou1': miou1,
-                'test miou2': miou2,
-                'test b_acc1': b_acc1,
-                'test b_acc2': b_acc2,
                 'test auc': auc,
-                'test auc_all': auc_all
+                **{f'test {name}': value for name, value in overlap_metrics.items()},
             })
-            pck_fig.savefig(os.path.join(self.opt['path']['results_root'], 'pck.png'))
-            pck_fig_all.savefig(os.path.join(self.opt['path']['results_root'], 'pck_all.png'))
-            iou_fig.savefig(os.path.join(self.opt['path']['results_root'], 'iou_curve.png'))
-            np.save(os.path.join(self.opt['path']['results_root'], 'pck.npy'), pcks)
-            np.save(os.path.join(self.opt['path']['results_root'], 'pck_all.npy'), pcks_all)
+            results_root = self.opt['path']['results_root']
+            pck_fig.savefig(os.path.join(results_root, 'pck.png'))
+            np.save(os.path.join(results_root, 'pck.npy'), pcks)
+            if overlap_metrics:
+                pck_fig_all.savefig(os.path.join(results_root, 'pck_all.png'))
+                iou_fig.savefig(os.path.join(results_root, 'iou_curve.png'))
+                np.save(os.path.join(results_root, 'pck_all.npy'), pcks_all)
+        plt.close(pck_fig)
+        if overlap_metrics:
+            plt.close(pck_fig_all)
+            plt.close(iou_fig)
         # display results
         logger = get_root_logger()
         logger.info(f'Avg time: {timer.get_avg_time():.4f}')
-        logger.info(f'miou1: {miou1:.4f} | miou2: {miou2:.4f}')
-        logger.info(f'b_acc1: {b_acc1:.4f} | b_acc2: {b_acc2:.4f}')
+        if overlap_metrics:
+            logger.info(f'miou1: {overlap_metrics["miou1"]:.4f} | miou2: {overlap_metrics["miou2"]:.4f}')
+            logger.info(f'b_acc1: {overlap_metrics["b_acc1"]:.4f} | b_acc2: {overlap_metrics["b_acc2"]:.4f}')
         logger.info(f'Val auc: {auc:.4f}')
-        logger.info(f'Val auc_all: {auc_all:.4f}')
+        if overlap_metrics:
+            logger.info(f'Val auc_all: {overlap_metrics["auc_all"]:.4f}')
         logger.info(f'Val avg error: {avg_geo_error:.4f}')
         for variant_name, variant_avg_geo_error in variant_metrics_result.items():
             logger.info(f'Val {variant_name} avg error: {variant_avg_geo_error:.4f}')

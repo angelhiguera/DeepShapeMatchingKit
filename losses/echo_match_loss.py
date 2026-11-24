@@ -77,20 +77,16 @@ class EchoMatchLoss(nn.Module):
         self.binary_loss = WeightedBCELoss()
         self.nce_softmax_loss = NCESoftmaxLoss(nce_t, nce_num_pairs)
 
-    def forward(self, C12, C_gt, corr_x, corr_y, feat1, feat2, overlap_score12, overlap_score21, gt_partiality_mask12, gt_partiality_mask21): # we've changed map21 to corr_x and corr_y
-        loss = 0
-
+    def forward(self, C12, C_gt, corr_x, corr_y, feat1, feat2, overlap_score12=None, overlap_score21=None,
+                gt_partiality_mask12=None, gt_partiality_mask21=None):
         # fmap loss
         fmap_loss = self.frob_loss(C12, C_gt) * self.w_fmap
-        loss += fmap_loss
-
-
 
         # overlap loss
-        acc_loss = self.binary_loss(overlap_score12, gt_partiality_mask12.float()) * self.w_acc
-        acc_loss += self.binary_loss(overlap_score21, gt_partiality_mask21.float()) * self.w_acc
-
-        loss += acc_loss
+        acc_loss = None
+        if overlap_score12 is not None:
+            acc_loss = self.binary_loss(overlap_score12, gt_partiality_mask12.float()) * self.w_acc
+            acc_loss += self.binary_loss(overlap_score21, gt_partiality_mask21.float()) * self.w_acc
 
         # nce loss
         cross_nce_loss = self.nce_softmax_loss(feat1, feat2, corr_x, corr_y)
@@ -106,7 +102,5 @@ class EchoMatchLoss(nn.Module):
         self_nce_loss = loss_x_self + loss_y_self
         
         final_nce_loss = cross_nce_loss * self.w_nce_cross + self_nce_loss * self.w_nce_self
-
-        loss += final_nce_loss
 
         return fmap_loss, acc_loss, final_nce_loss
