@@ -27,16 +27,20 @@ training budget, and selection protocol.
   annotated correspondences. Matching AUC integrates the direct-matching
   PCK curve on the existing 40-point grid from 0 to 0.25.
 - Use seed 1234, batch size 1, Adam at `1e-3` with betas `[0.9, 0.99]`, and
-  StepLR with step size 100 and gamma 0.5. Train for **60,000 iterations**
-  and evaluate the final checkpoint, following sections A and H of the
-  paper supplement. On the public split's 304 directional train maps,
-  this takes 197 full epochs and 112 iterations in epoch 198. The supplement
-  reports 273 training pairs, so the iteration count is the common reference.
+  StepLR with step size 100 and gamma 0.5. Train for **198 epochs** with
+  the standard trainer. On the public split's 304 directional train maps,
+  this gives 60,192 iterations. Evaluate the periodic checkpoint at
+  **60,000 iterations**, the budget in sections A and H of the paper
+  supplement. The supplement reports 273 training pairs, so the
+  iteration count is the common reference.
   [EchoMatch paper and supplement](https://xieyizheng.com/media/papers/echomatch/echo_match_paper_reduced.pdf)
-- Evaluate the 100 official test maps after training. Compare `point`
-  geodesic error and PCK with the paper where the matching rule,
-  normalization, and aggregation agree. The paper uses predicted overlap
-  for its reported matching. Report `fmap` mean error separately.
+- Evaluate the 100 official test maps after training. The standard
+  trainer runs its end-of-training validation at iteration 60,192.
+  Use the separately evaluated `60000.pth` results for the comparison.
+  Compare `point` geodesic error and PCK with the paper where the
+  matching rule, normalization, and aggregation agree. The paper uses
+  predicted overlap for its reported matching. Report `fmap` mean error
+  separately.
   [EchoMatch, CVPR 2025](https://openaccess.thecvf.com/content/CVPR2025/html/Xie_EchoMatch_Partial-to-Partial_Shape_Matching_via_Correspondence_Reflection_CVPR_2025_paper.html)
 
 ## Verification
@@ -87,6 +91,6 @@ The run directory is
 default evaluation output directory is
 `results/echo_match/echo_match_psmal_dino_matching_only50_/`.
 The launcher evaluates `models/60000.pth` and logs its SHA-256.
-`models/final.pth` contains the same weights after a normal completion.
+`models/final.pth` contains the epoch-198 weights at iteration 60,192.
 An optional path after `evaluate` selects an explicit checkpoint and
 uses a distinct result directory.

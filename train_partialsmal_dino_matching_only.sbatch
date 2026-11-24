@@ -56,7 +56,7 @@ if not training:
     if explicit_checkpoint:
         Path(sys.argv[3]).write_text(yaml.safe_dump({"path": {"resume_state": str(checkpoint)}}))
 
-splits = {"train_dataset": 304} if training else {"test_dataset": 100}
+splits = {"train_dataset": 304, "test_dataset": 100} if training else {"test_dataset": 100}
 for name, expected in splits.items():
     root = Path(config["datasets"][name]["data_root"]).resolve()
     maps = sorted((root / "maps").glob("*.vts"))

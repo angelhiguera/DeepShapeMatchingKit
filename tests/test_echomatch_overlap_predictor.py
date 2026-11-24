@@ -101,9 +101,6 @@ class OptionalOverlapPredictorTests(unittest.TestCase):
         options = make_options(matching_only=True)
         self.assertIs(options["path"]["resume"], False)
         self.assertNotIn("resume_state", options["path"])
-        self.assertEqual(options["train"]["total_iters"], 60000)
-        self.assertNotIn("test_dataset", options["datasets"])
-        self.assertIsNone(options["val"])
         model = build_model(options)
         net = model.networks[NETWORK]
         self.assertIsNone(net.overlap_predictor)
@@ -180,9 +177,8 @@ class OptionalOverlapPredictorTests(unittest.TestCase):
             self.assertNotIn("test b_acc1", summaries)
             self.assertNotIn("test auc_all", summaries)
 
-    def test_matching_only_periodic_validation_selects_on_point_error(self):
+    def test_matching_only_validation_selects_on_point_error(self):
         options = make_options(matching_only=True)
-        options["val"] = make_options()["val"]
         model = build_model(options)
         model.curr_iter = options["val"]["val_freq"]
         tb_logger = Mock()

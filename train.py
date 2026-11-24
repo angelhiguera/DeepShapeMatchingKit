@@ -2,7 +2,6 @@ import datetime
 import sys
 import math
 import time
-from itertools import islice
 from os import path as osp
 import os
 import torch.cuda
@@ -52,17 +51,8 @@ def create_train_val_dataloader(opt, logger):
     batch_size = opt['datasets']['batch_size']
     num_iter_per_epoch = math.ceil(
         len(train_set) * dataset_enlarge_ratio / batch_size)
-    total_iters = opt['train'].get('total_iters')
-    if total_iters is None:
-        total_epochs = int(opt['train']['total_epochs'])
-        total_iters = total_epochs * num_iter_per_epoch
-    else:
-        if type(total_iters) is not int or total_iters <= 0:
-            raise ValueError('train.total_iters must be a positive integer.')
-        num_iter_per_epoch = len(train_loader)
-        if num_iter_per_epoch == 0:
-            raise ValueError('The training dataloader has no full batches.')
-        total_epochs = math.ceil(total_iters / num_iter_per_epoch)
+    total_epochs = int(opt['train']['total_epochs'])
+    total_iters = total_epochs * num_iter_per_epoch
     logger.info('Training statistics:'
                 f'\n\tNumber of train images: {len(train_set)}'
                 f'\n\tDataset enlarge ratio: {dataset_enlarge_ratio}'
@@ -71,15 +61,11 @@ def create_train_val_dataloader(opt, logger):
                 f'\n\tRequire iter number per epoch: {num_iter_per_epoch}'
                 f'\n\tTotal epochs: {total_epochs}; iters: {total_iters}.')
 
-    val_loader = None
-    if opt.get('val') is not None:
-        if val_set is None:
-            raise ValueError('Validation requires a val or test dataset.')
-        val_loader = build_dataloader(
-            val_set, opt['datasets'], 'val', num_gpu=opt['num_gpu'], dist=opt['dist'], sampler=None,
-            seed=opt['manual_seed'])
-        logger.info('Validation statistics:'
-                    f'\n\tNumber of val images: {len(val_set)}')
+    val_loader = build_dataloader(
+        val_set, opt['datasets'], 'val', num_gpu=opt['num_gpu'], dist=opt['dist'], sampler=None,
+        seed=opt['manual_seed'])
+    logger.info('Validation statistics:'
+                f'\n\tNumber of val images: {len(val_set)}')
 
     return train_loader, train_sampler, val_loader, total_epochs, total_iters
 
@@ -121,7 +107,6 @@ def train_pipeline(root_path):
     # create train and validation dataloaders
     result = create_train_val_dataloader(opt, logger)
     train_loader, train_sampler, val_loader, total_epochs, total_iters = result
-    fixed_iterations = opt['train'].get('total_iters') is not None
     opt['train']['total_iter'] = total_iters
 
     # create model
@@ -136,13 +121,11 @@ def train_pipeline(root_path):
     start_time = time.time()
 
     try:
-        while (model.curr_iter < total_iters if fixed_iterations else model.curr_epoch < total_epochs):
+        while model.curr_epoch < total_epochs:
             model.curr_epoch += 1
             train_sampler.set_epoch(model.curr_epoch)
-            remaining_iters = total_iters - model.curr_iter
-            epoch_batches = islice(train_loader, remaining_iters) if fixed_iterations else train_loader
             # model.data_root = train_loader.dataset.data_root
-            for train_data in epoch_batches:
+            for train_data in train_loader:
                 data_timer.record()
 
                 model.curr_iter += 1
@@ -173,7 +156,7 @@ def train_pipeline(root_path):
                     model.save_model(net_only=False, best=False)
 
                 # validation
-                if val_loader is not None and (model.curr_iter % opt['val']['val_freq'] == 0):
+                if opt.get('val') is not None and (model.curr_iter % opt['val']['val_freq'] == 0):
                     logger.info('Start validation.')
                     torch.cuda.empty_cache()
                     # model.data_root = val_loader.dataset.data_root
@@ -190,30 +173,24 @@ def train_pipeline(root_path):
                 iter_timer.start()
                 # end of iter
             # update model per epoch
-            if not fixed_iterations or remaining_iters >= len(train_loader):
-                model.update_model_per_epoch()
+            model.update_model_per_epoch()
             # end of epoch
         # end of training
     except KeyboardInterrupt:
-        if fixed_iterations:
-            logger.info('Training interrupted. Retaining the most recent periodic checkpoint.')
-            raise
         # save the current model
         logger.info('Keyboard interrupt. Save model and exit...')
         model.save_model(net_only=False, best=False)
-        model.save_model(net_only=True, best=val_loader is not None)
+        model.save_model(net_only=True, best=True)
         sys.exit(0)
 
     consumed_time = str(datetime.timedelta(seconds=int(time.time() - start_time)))
     logger.info(f'End of training. Time consumed: {consumed_time}')
-    if val_loader is not None:
-        logger.info('Last Validation.')
+    logger.info(f'Last Validation.')
+    if opt.get('val') is not None:
         # model.data_root = val_loader.dataset.data_root
         model.validation(val_loader, tb_logger)
-        logger.info('Save the best model.')
-    else:
-        logger.info(f'Save the final model after {model.curr_iter} iterations.')
-    model.save_model(net_only=True, best=val_loader is not None)
+    logger.info('Save the best model.')
+    model.save_model(net_only=True, best=True)  # save the best model
 
     if tb_logger:
         tb_logger.close()
