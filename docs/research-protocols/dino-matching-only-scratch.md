@@ -94,3 +94,10 @@ The launcher evaluates `models/60000.pth` and logs its SHA-256.
 `models/final.pth` contains the epoch-198 weights at iteration 60,192.
 An optional path after `evaluate` selects an explicit checkpoint and
 uses a distinct result directory.
+
+To compare unmasked `fmap` and `fmap_oracle` on the same test maps in
+one job, use `evaluate-oracle` in place of `evaluate`. This applies the
+GT overlap mask only to Y's descriptors before the oracle solver call.
+Both variants use `60000.pth` by default. Compare their logged mean
+geodesic errors. The logged `Val auc` refers to direct `point` matching.
+The oracle mode saves results under a separate configuration suffix.

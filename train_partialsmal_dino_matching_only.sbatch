@@ -9,19 +9,20 @@
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:?Submit from the repository root with sbatch}"
 
-case "${1:-}" in
+mode="${1:-}"
+case "$mode" in
     train)
         [[ $# -eq 1 ]] || { echo "Usage: sbatch $0 train" >&2; exit 2; }
         entrypoint=train.py
         config=options/echo_match/train/echo_match_psmal_dino_matching_only.yaml
         ;;
-    evaluate)
-        [[ $# -le 2 ]] || { echo "Usage: sbatch $0 evaluate [CHECKPOINT]" >&2; exit 2; }
+    evaluate|evaluate-oracle)
+        [[ $# -le 2 ]] || { echo "Usage: sbatch $0 $mode [CHECKPOINT]" >&2; exit 2; }
         entrypoint=test.py
         config=options/echo_match/test/echo_match_psmal_dino_matching_only.yaml
         ;;
     *)
-        echo "Usage: sbatch $0 {train|evaluate [CHECKPOINT]}" >&2
+        echo "Usage: sbatch $0 {train|evaluate [CHECKPOINT]|evaluate-oracle [CHECKPOINT]}" >&2
         exit 2
         ;;
 esac
@@ -35,10 +36,13 @@ export TORCH_HOME="${TORCH_HOME:-/lustre/scratch/data/${USER}-echomatch/torch-ca
 temporary_dir=$(mktemp -d)
 trap 'rm -rf -- "$temporary_dir"' EXIT
 override="$temporary_dir/explicit_checkpoint.yaml"
+if [[ "$mode" == evaluate-oracle ]]; then
+    override="$temporary_dir/oracle_overlap.yaml"
+fi
 
 echo "Git commit: $(git rev-parse HEAD)"
 echo "Torch cache: $TORCH_HOME"
-python - "$config" "$entrypoint" "$override" "${2:-}" <<'PY'
+python - "$config" "$mode" "$override" "${2:-}" <<'PY'
 import hashlib
 import sys
 from pathlib import Path
@@ -46,15 +50,21 @@ from pathlib import Path
 import yaml
 
 config = yaml.safe_load(Path(sys.argv[1]).read_text())
-training = sys.argv[2] == "train.py"
+mode = sys.argv[2]
+training = mode == "train"
 explicit_checkpoint = sys.argv[4]
 if not training:
     checkpoint = Path(explicit_checkpoint or config["path"]["resume_state"]).expanduser().resolve()
     if not checkpoint.is_file():
         sys.exit(f"Missing matching-only checkpoint: {checkpoint}")
     print(f"Checkpoint SHA-256: {hashlib.sha256(checkpoint.read_bytes()).hexdigest()}  {checkpoint}")
+    evaluation_override = {}
     if explicit_checkpoint:
-        Path(sys.argv[3]).write_text(yaml.safe_dump({"path": {"resume_state": str(checkpoint)}}))
+        evaluation_override["path"] = {"resume_state": str(checkpoint)}
+    if mode == "evaluate-oracle":
+        evaluation_override["val"] = {"oracle_overlap": True}
+    if evaluation_override:
+        Path(sys.argv[3]).write_text(yaml.safe_dump(evaluation_override))
 
 splits = {"train_dataset": 304, "test_dataset": 100} if training else {"test_dataset": 100}
 for name, expected in splits.items():
